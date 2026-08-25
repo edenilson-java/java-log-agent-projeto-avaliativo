@@ -1,0 +1,43 @@
+# Variáveis de ambiente e segredos
+.env
+.env.local
+.env.*.local
+
+# Ambientes virtuais
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Artefatos do Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+build/
+dist/
+
+# Testes e cobertura
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Relatórios e sinais gerados em tempo de execução
+output/*
+!output/.gitkeep
+
+# Arquivos gerados pelo sistema operacional
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Editores
+.idea/
+*.swp
