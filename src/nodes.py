@@ -1,5 +1,7 @@
 import os
 from pathlib import Path
+from time import perf_counter
+from uuid import uuid4
 
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
@@ -9,6 +11,14 @@ from src.schemas import DiagnosticReport
 from src.state import AgentState
 from src.tools import extract_log_events, read_log_file, write_diagnostic_report
 from src.validation import validate_log_file
+
+# Mensagens literais dos nós de controle acrescentados pela evolução.
+LIMITE_MENSAGEM = (
+    "Limite de passos atingido; execução encerrada de forma controlada."
+)
+CANCELAMENTO_MENSAGEM = (
+    "Execução cancelada antes de qualquer leitura ou chamada externa."
+)
 
 DIAGNOSTIC_PROMPT = ChatPromptTemplate.from_messages([
     (
@@ -292,3 +302,135 @@ def escrever_relatorio(state: AgentState) -> dict:
         return {"error": result, "status": "error"}
 
     return {"report_path": result}
+
+
+# ---------------------------------------------------------------------------
+# Nós de controle acrescentados pela evolução (E02).
+#
+# O mini-projeto entrava direto na validação. A evolução abre e fecha a
+# execução por nós próprios, o que dá três coisas que o fluxo original não
+# tinha: identificadores de correlação, contagem de passos e um ponto único
+# de término por onde TODAS as rotas passam.
+# ---------------------------------------------------------------------------
+
+
+def inicializar_execucao(state: AgentState) -> dict:
+    """
+    Abre a execução: correlação, marco de tempo e contagem de passos.
+
+    Os identificadores só são gerados se ainda não existirem, para que uma
+    chamada vinda da API ou do MCP possa impor os seus.
+    """
+    return {
+        "correlation_id": state.get("correlation_id") or str(uuid4()),
+        "audit_id": state.get("audit_id") or str(uuid4()),
+        "started_at": state.get("started_at") or perf_counter(),
+        "current_step": state.get("current_step", 0) + 1,
+        "llm_attempts": state.get("llm_attempts", 0),
+        "status": "running",
+        "node_history": ["inicializar_execucao"],
+    }
+
+
+def cancelar_execucao(state: AgentState) -> dict:
+    """Encerra a pedido, antes de ler arquivo ou chamar qualquer serviço."""
+    return {
+        "status": "cancelled",
+        "error": CANCELAMENTO_MENSAGEM,
+        "blocked_reason": "cancel_requested",
+        "node_history": ["cancelar_execucao"],
+    }
+
+
+def gerar_resposta_limite(state: AgentState) -> dict:
+    """Encerra por limite de passos, evitando execução indefinida."""
+    return {
+        "status": "error",
+        "error": LIMITE_MENSAGEM,
+        "blocked_reason": "max_steps",
+        "node_history": ["gerar_resposta_limite"],
+    }
+
+
+def finalizar_execucao(state: AgentState) -> dict:
+    """
+    Ponto único de término, por onde passam todas as rotas.
+
+    Calcula a latência da execução. Não altera o status: quem decide o
+    desfecho é o nó anterior. Na E06 este mesmo nó passa a emitir os dois
+    sinais de observabilidade — é por existir um término único que os sinais
+    poderão cobrir inclusive as rotas que abortam.
+    """
+    started_at = state.get("started_at")
+    latencia = (
+        (perf_counter() - started_at) * 1000.0
+        if isinstance(started_at, (int, float))
+        else 0.0
+    )
+    return {
+        "latency_ms": round(latencia, 3),
+        "node_history": ["finalizar_execucao"],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Branches paralelas e ponto de junção (E02).
+#
+# As duas análises partem do mesmo conteúdo e não se enxergam. Cada uma
+# escreve a própria contribuição em `parallel_findings`, campo anotado com
+# reducer — sem ele o LangGraph recusaria a escrita concorrente.
+# ---------------------------------------------------------------------------
+
+
+def analisar_excecoes(state: AgentState) -> dict:
+    """Branch paralela: extrai as exceções Java do conteúdo lido."""
+    log_content = state.get("log_content", "")
+    exceptions = extract_log_events(log_content)["exceptions"]
+    return {
+        "exceptions": exceptions,
+        "parallel_findings": [
+            {"source": "excecoes", "findings": exceptions},
+        ],
+        "node_history": ["analisar_excecoes"],
+    }
+
+
+def analisar_eventos(state: AgentState) -> dict:
+    """Branch paralela: extrai as linhas ERROR e WARN do conteúdo lido."""
+    log_content = state.get("log_content", "")
+    events = extract_log_events(log_content)["events"]
+    return {
+        "extracted_events": events,
+        "parallel_findings": [
+            {"source": "eventos", "findings": events},
+        ],
+        "node_history": ["analisar_eventos"],
+    }
+
+
+def consolidar_analises(state: AgentState) -> dict:
+    """
+    Fan-in: reúne as duas contribuições, monta as evidências e classifica.
+
+    A classificação reaproveita `classificar_log`, herdada do mini-projeto,
+    em vez de reimplementar a heurística.
+    """
+    por_origem = {
+        item["source"]: item["findings"]
+        for item in state.get("parallel_findings", [])
+    }
+    exceptions = por_origem.get("excecoes", [])
+    events = por_origem.get("eventos", [])
+
+    # Mesmo recorte de evidências do mini-projeto: até 5 de cada origem.
+    evidence = exceptions[:5] + events[:5]
+
+    categoria = classificar_log(
+        {"exceptions": exceptions, "extracted_events": events}
+    )
+
+    return {
+        "evidence": evidence,
+        "category": categoria["category"],
+        "node_history": ["consolidar_analises"],
+    }

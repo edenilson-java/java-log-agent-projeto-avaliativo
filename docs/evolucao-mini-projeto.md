@@ -40,6 +40,8 @@ executado e o resultado obtido.
 | `.env.example` | Passou a declarar todas as variáveis de configuração, com comentário por variável e **nenhum valor real** | varredura de segredos: zero ocorrência |
 | `.gitignore` | Passou a ignorar `output/*` com exceção do `.gitkeep`, além de `.ruff_cache` | `git check-ignore -v .env` → `.gitignore:2:.env` |
 | `requirements.txt` | Ampliado de 6 para 12 dependências, agrupadas por finalidade | `pip check` → `No broken requirements found` |
+| `src/graph.py` (E02) | Topologia ampliada: nós de controle, fan-out/fan-in, cinco rotas, término único e fachada `JavaLogGraph` | os 26 testes herdados continuam verdes **sem alteração**; 28 testes novos |
+| `src/nodes.py` (E02) | Acrescentados os nós de controle e as duas branches paralelas; nós e funções herdados preservados | `classificar_log` e `extrair_eventos` mantidos e reaproveitados |
 
 ## Adicionado
 
@@ -47,6 +49,7 @@ executado e o resultado obtido.
 |---|---|---|
 | `src/config.py` | Configuração tipada e imutável por variável de ambiente, com a chave em `SecretStr` | **13 verificações** em `v01-fundacao.py`, seções [4] e [5] |
 | `docs/evolucao-mini-projeto.md` | Este documento | — |
+| `tests/test_graph_advanced.py` (E02) | Cobertura do que a evolução acrescentou ao fluxo | 28 testes; 3 mutações deliberadas detectadas |
 
 ## Removido ou substituído
 
@@ -164,6 +167,141 @@ nova varredura  : NADA ENCONTRADO — zero ocorrências, exit=0
 
 O `finally` não é detalhe de estilo: garante a restauração mesmo se a asserção falhar no
 meio do teste. Um controle negativo que deixa resíduo no repositório é pior que nenhum.
+
+### Ciclo 3 — o fan-out da forma mais óbvia executa a branch no caminho de erro (E02)
+
+**Problema observado.** Ao modelar a paralelização, a forma mais direta seria uma aresta
+condicional levando a uma branch e uma aresta incondicional levando à outra:
+
+```python
+workflow.add_conditional_edges("ler_log", route_ler_log, {"erro_leitura": "gerar_resposta_erro", "sucesso": "analisar_excecoes"})
+workflow.add_edge("ler_log", "analisar_eventos")   # incondicional
+```
+
+Antes de adotá-la, ela foi **testada em um grafo mínimo isolado**. O resultado mostrou que
+a aresta incondicional faz a segunda branch executar **também no caminho de erro** — ou
+seja, analisando conteúdo que nunca foi lido:
+
+```text
+OPCAO 2: conditional para 'a' + add_edge incondicional para 'b'
+  sucesso -> ['A', 'B']
+  falha   -> achados: [{'source': 'B'}]   <- 'b' rodou mesmo no erro
+```
+
+**Alteração realizada.** A rota `route_ler_log` passou a devolver uma **lista de destinos**,
+com o `path_map` declarado como lista de nós possíveis:
+
+```python
+def route_ler_log(state) -> list[str]:
+    if state.get("error"):
+        return ["gerar_resposta_erro"]
+    return ["analisar_excecoes", "analisar_eventos"]
+```
+
+Uma terceira forma — `path_map` com lista como valor — foi testada e **não é suportada**:
+o LangGraph tenta usar o valor como chave e levanta `TypeError: unhashable type: 'list'`.
+
+**Teste executado.** Grafo mínimo isolado para as três formas; depois
+`test_branches_nao_executam_no_erro_de_leitura` e o script `v02-grafo.py`; e uma **mutação
+deliberada** revertendo o fan-out para a forma descartada.
+
+**Resultado obtido.**
+
+```text
+forma adotada, caminho de erro  ->  achados: []  (nenhuma branch executou)
+mutação de volta à forma antiga ->  1 failed, 8 passed   (o teste detecta)
+suíte completa                  ->  54 passed
+```
+
+### Ciclo 4 — a verificação de transporte acusava falsa divergência (E02)
+
+**Problema observado.** Ao rodar o verificador da E01 como teste de regressão dentro da
+E02, ele reprovou apontando cinco arquivos supostamente corrompidos, entre eles o prompt
+histórico `01` e os três logs de exemplo — justamente os arquivos que **não podem** mudar.
+
+**Diagnóstico.** O conteúdo **versionado** estava intacto. O `git show HEAD:` do prompt `01`
+devolve `CRLF=0` e `776 bytes`, idêntico à baseline. O que diverge é a **árvore de
+trabalho**: no Windows o Git converte LF para CRLF no checkout.
+
+| Arquivo | Baseline | Árvore de trabalho | Bruto igual? | Normalizado igual? |
+|---|---|---|---|---|
+| `docs/prompts/01-...md` | 21 LF, 776 bytes | 21 CRLF, 797 bytes | não | **sim** |
+| `examples/logs/null-pointer-exception.log` | 6 LF, 490 bytes | 6 CRLF, 496 bytes | não | **sim** |
+
+O defeito era do verificador: a seção de transporte comparava **bytes brutos**, enquanto o
+plano determina comparação **após normalizar fim de linha**. A seção dos prompts já
+normalizava corretamente; a de transporte, não.
+
+**Alteração realizada.** A comparação de transporte passou a normalizar fim de linha, e foi
+declarado o conjunto `REFATORADOS_E02` com os arquivos que a E02 legitimamente alterou, para
+que o script siga falhando se qualquer outro arquivo divergir sem declaração.
+
+**Teste executado.** `v01-fundacao.py` reexecutado como regressão dentro da E02.
+
+**Resultado obtido.**
+
+```text
+antes da correção  ->  2 FALHA(S): 5 arquivos "divergentes inesperados"
+após a correção    ->  TODAS AS VERIFICACOES DA E01 PASSARAM  (38 checagens, exit 0)
+```
+
+Este ciclo confirma, na prática, duas decisões tomadas antes: escrever os arquivos em modo
+binário no transporte, e a exigência do plano de que a comparação dos nove prompts seja
+sempre feita após normalização.
+
+### Ciclo 5 — erro de fronteira no limite de passos, encontrado pela auditoria (E02)
+
+**Problema observado.** A auditoria independente reprovou a E02 apontando que
+
+```text
+route_inicializar({"current_step": 32, "max_steps": 32})
+  obtido:   "continuar"
+  esperado: "limite"
+```
+
+A condição implementada era `current_step > max_steps`, quando a tarefa T031 exige
+`current_step >= max_steps`. Com `>`, o passo de número `max_steps` ainda executava e o
+limite valia na prática como `max_steps + 1` — um erro clássico de fronteira.
+
+**Por que a suíte não pegou.** Os testes cobriam apenas valor **acima** do limite
+(`current_step=33, max_steps=32` e `current_step=50, max_steps=10`). Nenhum exercitava a
+**igualdade**, que é justamente onde os dois operadores divergem. O teste passava, e passava
+por acidente: teria passado igual com o operador errado — que foi o que aconteceu.
+
+**Alteração realizada.**
+
+| Onde | Mudança |
+|---|---|
+| `src/graph.py` | condição de `>` para `>=`, com comentário explicando por que a igualdade encerra |
+| `tests/test_graph_advanced.py` | `test_route_inicializar_limite_na_igualdade` (32/32 → limite) e `test_route_inicializar_continua_um_passo_antes_do_limite` (31/32 → continuar) |
+| `tests/test_graph_advanced.py` | `test_limite_de_passos_encerra_exatamente_na_fronteira`: entrada com `current_step=9` e `max_steps=10`; após o incremento de `inicializar_execucao` o passo vira 10 e a execução tem de encerrar ali, sem validar, ler, escrever **nem chamar o modelo** |
+| `tests/test_graph_advanced.py` | `test_um_passo_antes_do_limite_a_execucao_prossegue`: o outro lado da fronteira segue normalmente |
+| `arquivos/execucao/v02-grafo.py` | verificação da igualdade na rota isolada **e** no fluxo completo |
+
+Para provar que o modelo não é acionado, foi criada uma subclasse local `ContandoLLM` com
+contador de chamadas, em vez de alterar o `fake_llm.py` herdado.
+
+**Teste executado.** Suíte completa, verificador da etapa, e uma **mutação deliberada**
+revertendo o operador para `>`.
+
+**Resultado obtido.**
+
+```text
+fronteira, os dois lados:
+  step=31 max=32 -> continuar     step=32 max=32 -> limite
+  step=9  max=10 -> continuar     step=10 max=10 -> limite
+
+pytest -q            ->  58 passed
+v02-grafo.py         ->  62 checagens, 0 falhas, exit 0
+
+com o operador revertido para '>':
+  v02-grafo.py       ->  exit 1  — FALHOU route_inicializar: limite NA IGUALDADE
+  pytest             ->  2 failed, 30 passed
+```
+
+A lição registrada é sobre o método, não sobre o operador: **teste de limite que só exercita
+valor acima do limite não testa o limite**. A fronteira precisa ser exercitada dos dois
+lados — no valor exato e no imediatamente anterior.
 
 ## Resultado consolidado da E01
 
