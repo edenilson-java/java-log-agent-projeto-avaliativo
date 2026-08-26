@@ -23,6 +23,7 @@ from src.nodes import (
     tratar_saida_invalida,
     validar_entrada,
     validar_saida,
+    verificar_seguranca,
 )
 from src.state import AgentState
 
@@ -102,13 +103,7 @@ def route_ler_log(state: AgentState) -> list[str]:
 
 
 def route_seguranca_e_categoria(state: AgentState) -> str:
-    """
-    Decide entre bloqueio, log limpo e diagnóstico.
-
-    A rota `bloqueada` depende de `requires_human`, que passa a ser definido
-    pelo nó de segurança na E05. Até lá a rota existe e é testável com estado
-    sintético, mas não é alcançada pelo fluxo real.
-    """
+    """Prioriza o bloqueio; depois decide entre log limpo e diagnóstico."""
     if state.get("requires_human"):
         return "bloqueada"
     if state.get("category", "Unknown") == "Clean":
@@ -234,6 +229,9 @@ def create_graph(llm=None, checkpointer=None) -> JavaLogGraph:
     workflow.add_node("analisar_eventos", analisar_eventos)
     workflow.add_node("consolidar_analises", consolidar_analises)
 
+    # --- governança: aplicada antes de qualquer decisão de diagnóstico ---
+    workflow.add_node("verificar_seguranca", verificar_seguranca)
+
     # Ponto de entrada.
     workflow.add_edge(START, "inicializar_execucao")
 
@@ -274,9 +272,13 @@ def create_graph(llm=None, checkpointer=None) -> JavaLogGraph:
         "consolidar_analises",
     )
 
+    # A política roda entre o fan-in e a decisão: nenhuma chamada ao modelo e
+    # nenhuma escrita acontecem antes dela.
+    workflow.add_edge("consolidar_analises", "verificar_seguranca")
+
     # Decisão entre bloqueio, log limpo e diagnóstico.
     workflow.add_conditional_edges(
-        "consolidar_analises",
+        "verificar_seguranca",
         route_seguranca_e_categoria,
         {
             "bloqueada": "finalizar_execucao",
