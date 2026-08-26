@@ -45,10 +45,12 @@ executado e o resultado obtido.
 | `src/tools.py` (E03) | Contrato estruturado `read_log_as_response`, com validação de tipo na entrada; caminho em saída pública com `as_posix()` | os 4 nomes públicos herdados preservados; mensagens literais intactas |
 | `src/schemas.py` (E03) | Acrescentados os cinco contratos de fronteira, todos com `extra="forbid"` e `StrictStr` | tipo errado devolve HTTP 422 |
 | `src/main.py` (E03) | CLI passou a propagar `blocked` e `cancelled` com código 1 | cabeçalho e linhas literais preservados |
-| `tests/test_tools.py` (E03) | Portabilidade de caminho e recusa de tipo errado | fecham pontos cegos revelados por mutação e por auditoria |
+| `tests/test_tools.py` (E03) | Portabilidade de caminho e recusa de tipo errado | fecham pontos cegos revelados por mutação e por verificação independente |
 | `src/graph.py` (E04) | Checkpointer ligado em `create_graph(checkpointer=...)`; `thread_id` normalizado na fachada e **com precedência sobre o `configurable` do chamador**; limpeza dos campos que pertencem a uma execução só | a segunda invocação de uma thread recupera contexto **sem** herdar o resultado da primeira; identificador público e chave real do checkpointer **coincidem** |
 | `src/nodes.py` (E04) | `finalizar_execucao` grava `memory_context`; `diagnosticar` consome o contexto recuperado | o *template* do prompt herdado permanece **byte a byte** o mesmo — o contexto entra pelo texto das evidências |
 | `README.md` (E04) | Seção **Contexto e memória**, rascunho da E10: estratégia, origem do contexto, o que é descartado e a justificativa de não usar RAG | 10 blocos finais consolidados na E10 |
+| `src/nodes.py` (E05) | Nó `verificar_seguranca`: aplica a política e redige tudo o que deriva do arquivo lido | `log_content`, `exceptions`, `extracted_events`, `evidence`, `parallel_findings` e `memory_context` saem redigidos |
+| `src/graph.py` (E05) | A governança entra entre o fan-in e a decisão de diagnóstico | o grafo passa de 15 para **16 nós**; `consolidar_analises` não alcança mais a decisão sem passar pela política |
 
 ## Adicionado
 
@@ -63,6 +65,11 @@ executado e o resultado obtido.
 | `tests/test_mcp.py` (E03) | Integração pela fronteira MCP, in-process, atravessando `call_tool` | 22 testes |
 | `src/memory.py` (E04) | Checkpointer `InMemorySaver` e montagem do config de thread | **100 verificações** em `v04-memoria.py`; nada de persistência em disco e nada de rede |
 | `tests/test_memory.py` (E04) | Recuperação na mesma thread, isolamento entre threads, limites do contexto, recusa de `thread_id` inválido e a **chave real do checkpointer** pelo caminho do `config` | 39 testes; **16 mutações deliberadas, 16 detectadas** |
+| `src/security.py` (E05) | Política de autonomia, detecção das três famílias e redaction de dez formatos de credencial | **158 verificações** no verificador independente da etapa; não importa `ChatOpenAI`, `httpx`, `socket` nem `subprocess` |
+| `tests/test_security.py` (E05) | Aceitação do cenário adversarial e cobertura da governança | 98 testes; **21 mutações deliberadas, 21 detectadas** |
+| `examples/logs/adversarial-prompt-injection.log` (E05) | Fixture do cenário de risco, integralmente fictícia | dispara as três famílias e **não contém segredo**, provado por `redact_sensitive_text` devolvendo o arquivo inalterado |
+| `docs/seguranca/politica-autonomia.md` (E05) | O que é permitido, o que é bloqueado, o que exige humano | — |
+| `docs/seguranca/cenario-adversarial.md` (E05) | Entrada, comportamento esperado, resultado obtido e evidência | execução real da CLI, código de saída 1 |
 
 ## Removido ou substituído
 
@@ -152,7 +159,7 @@ após remover a isca        ->  NADA ENCONTRADO — zero ocorrências   (exit 0)
 O controle negativo é o que dá valor ao resultado: sem ele, "zero ocorrências" seria
 indistinguível de um scanner quebrado.
 
-**Correção posterior, apontada em auditoria.** A primeira versão do scanner mantinha uma
+**Correção posterior, identificada em verificação independente.** A primeira versão do scanner mantinha uma
 lista de isenções com três itens, e dois deles eram indefensáveis:
 
 | Item isento | Por que a isenção estava errada |
@@ -262,9 +269,9 @@ Este ciclo confirma, na prática, duas decisões tomadas antes: escrever os arqu
 binário no transporte, e a exigência do plano de que a comparação dos nove prompts seja
 sempre feita após normalização.
 
-### Ciclo 5 — erro de fronteira no limite de passos, encontrado pela auditoria (E02)
+### Ciclo 5 — erro de fronteira no limite de passos, identificado em verificação independente (E02)
 
-**Problema observado.** A auditoria independente reprovou a E02 apontando que
+**Problema observado.** Uma verificação independente reprovou a E02 apontando que
 
 ```text
 route_inicializar({"current_step": 32, "max_steps": 32})
@@ -289,7 +296,7 @@ por acidente: teria passado igual com o operador errado — que foi o que aconte
 | `tests/test_graph_advanced.py` | `test_route_inicializar_limite_na_igualdade` (32/32 → limite) e `test_route_inicializar_continua_um_passo_antes_do_limite` (31/32 → continuar) |
 | `tests/test_graph_advanced.py` | `test_limite_de_passos_encerra_exatamente_na_fronteira`: entrada com `current_step=9` e `max_steps=10`; após o incremento de `inicializar_execucao` o passo vira 10 e a execução tem de encerrar ali, sem validar, ler, escrever **nem chamar o modelo** |
 | `tests/test_graph_advanced.py` | `test_um_passo_antes_do_limite_a_execucao_prossegue`: o outro lado da fronteira segue normalmente |
-| `arquivos/execucao/v02-grafo.py` | verificação da igualdade na rota isolada **e** no fluxo completo |
+| verificador independente da etapa | verificação da igualdade na rota isolada **e** no fluxo completo |
 
 Para provar que o modelo não é acionado, foi criada uma subclasse local `ContandoLLM` com
 contador de chamadas, em vez de alterar o `fake_llm.py` herdado.
@@ -368,7 +375,7 @@ que criou um defeito real — a anotação ficou irresolvível.
 
 **Problema observado.** O teste de mutação da E03 revelou algo mais grave que uma regra de
 lint. Das três mutações aplicadas, **duas foram detectadas apenas pelo script de
-verificação** — que vive em `arquivos/execucao/` e **não é entregue**:
+verificação** — o verificador independente da etapa, que **não é entregue**:
 
 | Mutação | Script `v03` | Suíte versionada |
 |---|---|---|
@@ -427,9 +434,9 @@ segue reprovando se qualquer arquivo divergir sem declaração:
 Um verificador que aprova com rótulo errado é pior que um que reprova: ele documenta uma
 inverdade e ninguém percebe.
 
-### Ciclo 10 — três lacunas de fronteira encontradas pela auditoria (E03)
+### Ciclo 10 — três lacunas de fronteira identificadas em verificação independente (E03)
 
-**Problema observado.** A auditoria independente reprovou a E03 com três achados objetivos,
+**Problema observado.** Uma verificação independente reprovou a E03 com três achados objetivos,
 todos reproduzidos antes de qualquer correção.
 
 **1. A função interna quebrava com tipo errado.**
@@ -564,7 +571,7 @@ teria congelado o erro.
 
 ### Ciclo 13 — o identificador público e a chave real da memória divergiam (E04)
 
-**Problema observado.** Apontado pela auditoria independente. A fachada normalizava o
+**Problema observado.** Identificado em verificação independente. A fachada normalizava o
 `thread_id` e o gravava no estado, mas montava o `config` do LangGraph assim:
 
 ```python
@@ -601,7 +608,7 @@ dos testes, e sim na **porta de entrada** que nenhum deles usava.
 - `tests/test_memory.py`: **5 testes novos** que observam o `config` **realmente entregue**
   ao grafo compilado, e não o que a fachada devolve — mais a prova de persistência por
   `get_state`, que mostra o checkpoint sob a chave normalizada e **nada** sob a crua;
-- `arquivos/execucao/v04-memoria.py`: seção `[5]` nova, com 17 verificações sobre a chave
+- verificador independente da etapa: seção nova, com 17 verificações sobre a chave
   real, incluindo a leitura na fonte de que o `thread_id` vem por último na composição.
 
 **Teste executado.** O defeito foi **reintroduzido** e medido separadamente contra a suíte
@@ -617,6 +624,189 @@ defeito reintroduzido->  pytest 4 failed    |  v04 exit 1, 11 verificacoes falha
 A lição não é sobre precedência de dicionário. É sobre **por onde o teste entra**: uma
 unidade pode estar coberta por dezenas de testes e ainda assim ter uma porta que nenhum
 deles abre. O `thread_id` tinha duas — estado e `config` — e só uma estava sendo usada.
+
+### Ciclo 14 — a redação cobria o prompt, mas não a resposta (E05)
+
+**Problema observado.** A primeira versão de `verificar_seguranca` redigia apenas `evidence`,
+que é o campo que alimenta o prompt. O teste escrito para o requisito falhou logo na primeira
+execução, e o motivo estava na própria mensagem de erro:
+
+```text
+assert 'ghp_BBBB…' not in "{'file_path'… 'log_content': '… invalid credential ghp_BBBB…',
+  'exceptions': ['java.lang.SecurityException: invalid credential ghp_BBBB…'],
+  'evidence': ['java.lang.SecurityException: invalid credential [REDACTED]'] …}"
+```
+
+`evidence` estava limpo; `log_content`, `exceptions` e `extracted_events` carregavam o segredo
+bruto. E o estado final não é um detalhe interno: é a **resposta pública** devolvida pela
+fachada do grafo, pela API e pela CLI. Redigir só o que ia ao modelo tirava o segredo da
+entrada e o devolvia pela porta de saída.
+
+**Alteração realizada.** A redação passou a alcançar tudo o que deriva do arquivo lido —
+`evidence`, `exceptions`, `extracted_events`, `parallel_findings` — mais o `log_content`, que
+atravessa `sanitize_untrusted_content`, e o `memory_context` recuperado da execução anterior
+da thread.
+
+**Teste executado.** Os dois testes de vazamento — segredo vindo do arquivo e segredo vindo do
+histórico da thread — verificando prompt, resposta, relatório gravado em disco e cada campo do
+estado, um a um.
+
+**Resultado obtido.**
+
+```text
+antes  ->  2 failed  (segredo presente em log_content, exceptions, extracted_events)
+depois ->  228 passed
+mutacao: no de seguranca para de redigir os campos derivados  ->  1 failed
+mutacao: no de seguranca para de sanear o conteudo do log     ->  1 failed
+mutacao: no de seguranca para de sanear a memoria recuperada  ->  1 failed
+```
+
+A lição é sobre o alcance do controle: **sanitizar a entrada do modelo não é sanitizar a
+saída do sistema**. O estado é resposta pública, e todo campo dele precisa ser tratado como
+tal.
+
+### Ciclo 15 — a varredura de segredos tinha um ponto cego declarado (E05)
+
+**Problema observado.** A fixture adversarial estava na lista `ISENTOS` da varredura de
+segredos, desde a E01, sob a justificativa de conter "conteúdo declaradamente fictício". O
+controle negativo executado nesta etapa mostrou o custo dessa isenção. Um segredo sintético foi
+plantado, um de cada vez, em três arquivos, e a varredura foi rodada:
+
+```text
+src/security.py                                contaminado -> exit=1  acusou=True
+examples/logs/adversarial-prompt-injection.log contaminado -> exit=0  acusou=False   <-- ponto cego
+tests/test_security.py                         contaminado -> exit=1  acusou=True
+```
+
+Ou seja: o arquivo cujo **propósito** é conter texto hostil — e portanto aquele em que uma
+credencial real passaria mais facilmente por "parte do cenário" — era exatamente o que a
+varredura não olhava.
+
+**Alteração realizada.** A isenção foi removida e `ISENTOS` ficou **vazio**. Isso só foi
+possível porque a fixture foi escrita para demonstrar o ataque **sem carregar credencial
+alguma**: ela pede a chave, não a exibe. O mesmo vale para `src/security.py` e
+`tests/test_security.py`, cujos literais parecidos com credencial são montados em tempo de
+execução, por concatenação — a solução fica no arquivo inspecionado, nunca em tirá-lo da
+inspeção.
+
+**Teste executado.** O mesmo controle negativo, com os três alvos, depois da remoção.
+
+**Resultado obtido.**
+
+```text
+os tres alvos contaminados -> exit=1, acusou=True nos tres
+estado limpo               -> exit=0, zero ocorrencias
+ISENTOS                    -> conjunto vazio
+```
+
+A lição: **uma isenção é um ponto cego com nome bonito**. Enquanto ela existir, a varredura
+responde "nada encontrado" sobre um arquivo que não leu.
+
+### Ciclo 16 — um teste de limite que nunca chegava ao limite (E05)
+
+**Problema observado.** Das 16 mutações da E05, quinze morreram e **uma sobreviveu**: remover
+o teto de `sanitize_untrusted_content` não fazia teste algum falhar. O teste parecia correto:
+
+```python
+conteudo = segredo_provedor() + ("x" * (LIMITE_CONTEUDO_NAO_CONFIAVEL * 2))
+saida = sanitize_untrusted_content(conteudo)
+assert len(saida) <= LIMITE_CONTEUDO_NAO_CONFIAVEL
+```
+
+O padrão de redação é **guloso sobre caracteres alfanuméricos**, e o preenchimento estava
+colado ao segredo. A substituição engolia os dois de uma vez:
+
+```text
+len entrada: 8035   len saida: 10   teto: 4000
+```
+
+A saída cabia no teto por já ter virado `[REDACTED]`. O corte nunca era exercitado, e a
+asserção passava sem testar coisa alguma.
+
+**Alteração realizada.** O preenchimento passou a ser separado do segredo por quebra de linha,
+o que interrompe a correspondência gulosa; a asserção passou de `<=` para **igualdade exata**
+com o teto, de modo que só passa se o corte tiver de fato acontecido; e um controle negativo
+foi acrescentado, provando que conteúdo abaixo do teto atravessa inteiro.
+
+**Teste executado.** A mutação S07 reaplicada, e depois a campanha inteira.
+
+**Resultado obtido.**
+
+```text
+antes  ->  S07 SOBREVIVEU  (228 passed, mutacao invisivel)
+depois ->  S07 morta       (1 teste falha)
+campanha, naquele momento -> 16 mutacoes, 16 mortas
+```
+
+É a mesma lição do Ciclo 11, por outro caminho: ali o teste se ancorava na constante que
+deveria vigiar; aqui o dado de entrada nunca alcançava o comportamento que a asserção
+descrevia. Em ambos os casos, o teste passava — e não protegia nada.
+
+### Ciclo 17 — a redação cobria um formato de cada família, não todos (E05)
+
+**Problema observado.** Identificado em verificação independente. A redação reconhecia
+`sk-`, `ghp_` e `Bearer` — e apenas esses. A reprodução, por formato, mediu tanto a detecção
+quanto o vazamento no estado devolvido:
+
+```text
+formato                   contains  redigiu   vaza no estado
+sk- simples                   True     True             False
+sk-proj- composto            False    False              True   <--
+sk-svcacct- composto         False    False              True   <--
+sk_ com underscore           False    False              True   <--
+ghp_ classico                 True     True             False
+github_pat_ fino             False    False              True   <--
+Bearer maiusculo              True     True             False
+bearer minusculo             False    False              True   <--
+BEARER caixa alta            False    False              True   <--
+```
+
+Seis dos nove formatos atravessavam inteiros — apareciam no prompt, no `log_content`, nas
+`evidence` e na resposta pública. Três causas distintas:
+
+1. o corpo do token era lido como um bloco alfanumérico único, então `sk-proj-…` parava no
+   primeiro hífen e `proj` não alcançava o comprimento mínimo;
+2. `github_pat_` não constava da lista de prefixos de provedor;
+3. o esquema portador era casado com sensibilidade a maiúsculas.
+
+**Alteração realizada.**
+
+- o prefixo passou a aceitar **componentes separados** por hífen ou underscore, consumindo o
+  token inteiro — um casamento parcial deixaria o sufixo exposto, e meia credencial num log
+  ainda é credencial vazada;
+- `github_pat_` entrou na lista de prefixos;
+- o esquema portador passou a ser reconhecido em **qualquer capitalização**;
+- foi acrescentada uma **guarda de início**, `(?<![A-Za-z0-9_])`, sem a qual identificadores
+  legítimos do domínio — `disk_utilizationPercentageValue…`, `task_executorThreadPool…`,
+  `risk_scoreCalculated…` — passariam a ser redigidos como se fossem credencial;
+- o verificador de varredura de segredos recebeu os mesmos formatos, continuando a montar os
+  padrões em tempo de execução.
+
+**Teste executado.** Dez formatos parametrizados na suíte versionada, cada um exigindo
+detecção, substituição, ausência do valor completo e ausência do **fragmento final** — mais
+o mesmo conjunto atravessando o fluxo real, com verificação campo a campo. Controle negativo
+da varredura ampliado para **três arquivos × oito formatos**. E cinco mutações novas, uma por
+decisão tomada.
+
+**Resultado obtido.**
+
+```text
+depois da correcao: os 9 formatos -> contains=True, redigiu=True, vaza=False
+suite versionada  -> 261 passed  (228 -> 261)
+verificador da etapa -> 158 verificacoes, exit 0
+controle negativo da varredura -> 3 arquivos x 8 formatos, 24 acusacoes, 24 restauracoes
+campanha de mutacao -> 21 mutacoes, 21 mortas
+```
+
+Durante a mesma rodada, uma segunda coisa apareceu: a mutação que removia a guarda de início
+**sobreviveu**, porque os textos de controle escolhidos não a exercitavam — `risk_score=0.87`
+não casa nem com a guarda nem sem ela, já que o valor após o separador é curto demais. Os
+casos foram trocados por identificadores longos, que discriminam de fato, e a mutação passou
+a morrer.
+
+A lição: **cobrir uma família de formato não é cobrir a família**. Um único exemplar por
+padrão dá a sensação de cobertura e esconde as variações — e são justamente as variações que
+os provedores introduzem com o tempo.
 
 ## Resultado consolidado da E01
 

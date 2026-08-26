@@ -8,6 +8,13 @@ from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
 from src.schemas import DiagnosticReport
+from src.security import (
+    contains_secret,
+    evaluate_policy,
+    redact_sensitive_text,
+    sanitize_memory_context,
+    sanitize_untrusted_content,
+)
 from src.state import AgentState
 from src.tools import extract_log_events, read_log_file, write_diagnostic_report
 from src.validation import validate_log_file
@@ -526,3 +533,54 @@ def formatar_memoria_para_prompt(memory_context: dict | None) -> str:
         for item in memory_context.get("evidence", [])
     )
     return "\n".join(linhas)
+
+
+# Governança e limites de autonomia.
+
+
+def verificar_seguranca(state: AgentState) -> dict:
+    """Aplica a política e redige os dados que seguem adiante.
+    Conteúdo hostil encerra o fluxo sem modelo nem escrita."""
+    conteudo = state.get("log_content", "")
+    decisao = evaluate_policy(conteudo)
+
+    # Redige todos os campos derivados antes de expor o estado.
+    campos_derivados = ("evidence", "exceptions", "extracted_events")
+    redigidos = {
+        campo: [redact_sensitive_text(item) for item in state.get(campo, [])]
+        for campo in campos_derivados
+    }
+    conteudo_seguro = sanitize_untrusted_content(conteudo)
+    memoria = sanitize_memory_context(state.get("memory_context"))
+    achados = [
+        {
+            "source": item["source"],
+            "findings": [redact_sensitive_text(f) for f in item["findings"]],
+        }
+        for item in state.get("parallel_findings", [])
+    ]
+
+    houve_redacao = (
+        contains_secret(conteudo)
+        or any(redigidos[c] != list(state.get(c, [])) for c in campos_derivados)
+        or memoria != state.get("memory_context")
+    )
+
+    saida: dict = {
+        **redigidos,
+        "log_content": conteudo_seguro,
+        "parallel_findings": achados,
+        "security_flags": list(decisao.flags),
+        "requires_human": decisao.requires_human,
+        "redacted": houve_redacao,
+        "node_history": ["verificar_seguranca"],
+    }
+    if memoria is not None:
+        saida["memory_context"] = memoria
+
+    if not decisao.allowed:
+        saida["status"] = "blocked"
+        saida["blocked_reason"] = ",".join(decisao.flags)
+        saida["error"] = decisao.message
+
+    return saida
