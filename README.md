@@ -176,6 +176,53 @@ Cobertura funcional da suíte:
 - 11 testes das ferramentas;
 - 8 testes de validação de entrada.
 
+## Contexto e memória
+
+> Rascunho da etapa E04. A versão final desta seção é consolidada na E10.
+
+**Estratégia adotada:** *state* tipado somado a um **checkpointer
+`InMemorySaver` isolado por `thread_id`**. Não há RAG, nem base vetorial, nem
+armazenamento persistente.
+
+**Por que não RAG.** O enunciado oferece quatro opções — *state*, checkpointer,
+armazenamento persistente **ou** RAG — e cobra adequação ao domínio. O domínio
+aqui é diagnóstico de logs: o contexto que importa na segunda análise de uma
+sessão é o que a **própria sessão** já concluiu sobre logs relacionados, e isso
+já está no estado. Uma base vetorial com *chunking* e indexação seria
+infraestrutura para recuperar algo que o agente nunca perdeu.
+
+**De onde vem o contexto recuperado.** Exclusivamente da execução anterior da
+**mesma** `thread_id`, gravado pelo nó de término `finalizar_execucao` e lido
+na execução seguinte pelo nó `diagnosticar`. Não há fonte externa.
+
+**O que é recuperado — e só isso:**
+
+| Campo | Conteúdo |
+|---|---|
+| `category` | categoria atribuída na execução anterior |
+| `summary` | resumo do diagnóstico anterior, truncado |
+| `status` | desfecho da execução anterior |
+| `evidence` | **no máximo 2** evidências, cada uma truncada |
+
+**O que é descartado.** O conteúdo bruto do log, a *stack trace* completa, o
+caminho do relatório e todos os demais campos do estado. O limite é fixo por
+decisão: o que não é reaproveitado não pode vazar para um prompt, e um
+contexto sem teto cresceria a cada execução até dominar a janela do modelo.
+
+**Como as informações são usadas.** O contexto entra como texto adicional nas
+evidências enviadas ao modelo, precedido de `Contexto recuperado da execução
+anterior desta mesma thread:`. O *template* do prompt herdado do mini-projeto
+permanece inalterado, e na primeira execução de uma thread o bloco não existe.
+
+**Isolamento.** `thread_id` distinto não enxerga nada da outra thread. Espaços
+nas bordas são normalizados — `"  sessao-1  "` e `"sessao-1"` são a mesma
+thread —, e um `thread_id` vazio ou só com espaços é recusado com `ValueError`
+em vez de virar silenciosamente uma thread nova a cada chamada.
+
+**Limitação assumida.** A memória vive **no processo**: encerrada a execução do
+programa, ela desaparece. Persistir estado de diagnóstico em disco criaria
+superfície de dados sensíveis sem ganho funcional para o caso de uso.
+
 ## Segurança e limites
 
 - arquivos de entrada devem estar em `examples/logs`;

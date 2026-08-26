@@ -165,7 +165,7 @@ def test_conteudo_longo_e_truncado_com_marcador():
 
 
 # ---------------------------------------------------------------------------
-# Integração REAL pelo servidor MCP (E03, após auditoria).
+# Integração pela fronteira real do servidor MCP.
 #
 # Os testes acima chamam `read_log_tool` diretamente: isso exercita o handler,
 # não o registro nem a execução pelo `MCPServer`. Os testes abaixo atravessam

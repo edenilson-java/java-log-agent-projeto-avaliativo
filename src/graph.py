@@ -6,6 +6,7 @@ from uuid import uuid4
 from langgraph.graph import END, START, StateGraph
 
 from src.config import load_config
+from src.memory import create_checkpointer, normalize_thread_id
 from src.nodes import (
     analisar_eventos,
     analisar_excecoes,
@@ -27,6 +28,40 @@ from src.state import AgentState
 
 # Status terminais em que a resposta pública não deve expor campos vazios.
 STATUS_SEM_DIAGNOSTICO = {"error", "cancelled", "blocked"}
+
+# Campos que pertencem a UMA execução, e o valor com que cada um recomeça.
+#
+# Com checkpointer, a segunda invocação da mesma thread não parte do zero: ela
+# parte do estado final da primeira. Isso é exatamente o que dá memória — e é
+# também o que faria o diagnóstico, o relatório e o erro da execução anterior
+# reaparecerem como se fossem da atual. A fachada zera aqui tudo o que é de
+# uma execução só, e preserva `memory_context`, que é justamente o que deve
+# atravessar. Só o que quem chama NÃO informou é zerado, de modo que a API e
+# o MCP continuam podendo impor os próprios identificadores de correlação.
+CAMPOS_POR_EXECUCAO: dict[str, Any] = {
+    "log_content": "",
+    "extracted_events": [],
+    "exceptions": [],
+    "category": "",
+    "evidence": [],
+    "diagnostic": {},
+    "report_path": "",
+    "error": "",
+    "validation_errors": [],
+    "security_flags": [],
+    "redacted": False,
+    "requires_human": False,
+    "blocked_reason": "",
+    "cancel_requested": False,
+    "correlation_id": "",
+    "audit_id": "",
+    "started_at": 0.0,
+    "current_step": 0,
+    "llm_attempts": 0,
+    "latency_ms": 0.0,
+    "http_status": 0,
+    "observability_errors": [],
+}
 
 
 def route_inicializar(state: AgentState) -> str:
@@ -108,12 +143,22 @@ class JavaLogGraph:
         supplied_config = dict(config or {})
         configurable = dict(supplied_config.get("configurable", {}))
 
+        # `thread_id` informado é normalizado e pode ser recusado; ausente,
+        # ganha um identificador novo. A diferença importa: quem não informa
+        # thread nenhuma quer uma execução isolada, enquanto quem informa uma
+        # thread vazia informou algo que não identifica coisa alguma.
+        fornecido = state.get("thread_id")
+        if fornecido is None:
+            fornecido = configurable.get("thread_id")
+
         thread_id = (
-            state.get("thread_id")
-            or configurable.get("thread_id")
-            or str(uuid4())
+            str(uuid4()) if fornecido is None else normalize_thread_id(fornecido)
         )
         state["thread_id"] = thread_id
+
+        for campo, valor_inicial in CAMPOS_POR_EXECUCAO.items():
+            state.setdefault(campo, valor_inicial)
+
         state.setdefault("max_steps", load_config().max_steps)
         state.setdefault("request_source", "test")
 
@@ -122,9 +167,12 @@ class JavaLogGraph:
             for key, value in supplied_config.items()
             if key != "configurable"
         }
+        # O `thread_id` escolhido e normalizado deve prevalecer sobre o valor
+        # recebido em `configurable`. Os demais campos de configuração são
+        # preservados.
         runtime_config["configurable"] = {
-            "thread_id": thread_id,
             **configurable,
+            "thread_id": thread_id,
         }
         # Rede de segurança do próprio LangGraph, além do limite de passos.
         runtime_config.setdefault("recursion_limit", 64)
@@ -149,13 +197,19 @@ class JavaLogGraph:
         return self._compiled_graph.get_graph()
 
 
-def create_graph(llm=None) -> JavaLogGraph:
+def create_graph(llm=None, checkpointer=None) -> JavaLogGraph:
     """
     Cria e compila o StateGraph do agente.
 
     O LLM continua sendo injetado como dependência, exatamente como no
     mini-projeto: sem LLM fornecido, o nó de diagnóstico constrói um
     ChatOpenAI em tempo de execução.
+
+    O checkpointer segue a mesma regra e é a memória curta da E04. Sem um
+    fornecido, cada grafo recebe o seu — o que mantém o comportamento herdado
+    de dois grafos distintos não se enxergarem. Compartilhar memória entre
+    chamadas é decisão de quem monta o grafo: a API mantém um grafo único por
+    processo, e por isso threads iguais se reencontram entre requisições.
     """
     workflow = StateGraph(AgentState)
 
@@ -248,4 +302,6 @@ def create_graph(llm=None) -> JavaLogGraph:
     workflow.add_edge("escrever_relatorio", "finalizar_execucao")
     workflow.add_edge("finalizar_execucao", END)
 
-    return JavaLogGraph(workflow.compile())
+    return JavaLogGraph(
+        workflow.compile(checkpointer=checkpointer or create_checkpointer())
+    )

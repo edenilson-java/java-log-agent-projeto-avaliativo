@@ -2,8 +2,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal, TypedDict
 
-# Os cinco primeiros status são herdados do mini-projeto e preservados por
-# continuidade. Os três últimos são acrescentados pela evolução.
+# Status finais expostos e estados internos usados durante a execução.
 AgentStatus = Literal[
     "success",
     "success_fallback",

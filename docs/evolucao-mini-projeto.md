@@ -46,6 +46,9 @@ executado e o resultado obtido.
 | `src/schemas.py` (E03) | Acrescentados os cinco contratos de fronteira, todos com `extra="forbid"` e `StrictStr` | tipo errado devolve HTTP 422 |
 | `src/main.py` (E03) | CLI passou a propagar `blocked` e `cancelled` com código 1 | cabeçalho e linhas literais preservados |
 | `tests/test_tools.py` (E03) | Portabilidade de caminho e recusa de tipo errado | fecham pontos cegos revelados por mutação e por auditoria |
+| `src/graph.py` (E04) | Checkpointer ligado em `create_graph(checkpointer=...)`; `thread_id` normalizado na fachada e **com precedência sobre o `configurable` do chamador**; limpeza dos campos que pertencem a uma execução só | a segunda invocação de uma thread recupera contexto **sem** herdar o resultado da primeira; identificador público e chave real do checkpointer **coincidem** |
+| `src/nodes.py` (E04) | `finalizar_execucao` grava `memory_context`; `diagnosticar` consome o contexto recuperado | o *template* do prompt herdado permanece **byte a byte** o mesmo — o contexto entra pelo texto das evidências |
+| `README.md` (E04) | Seção **Contexto e memória**, rascunho da E10: estratégia, origem do contexto, o que é descartado e a justificativa de não usar RAG | 10 blocos finais consolidados na E10 |
 
 ## Adicionado
 
@@ -58,6 +61,8 @@ executado e o resultado obtido.
 | `src/mcp_server.py` (E03) | Servidor MCP local por stdio, somente a capability `read_log` | read-only comprovado: não grava e não chama o modelo |
 | `tests/test_api.py` (E03) | Integração pela fronteira HTTP e CLI | 35 testes |
 | `tests/test_mcp.py` (E03) | Integração pela fronteira MCP, in-process, atravessando `call_tool` | 22 testes |
+| `src/memory.py` (E04) | Checkpointer `InMemorySaver` e montagem do config de thread | **100 verificações** em `v04-memoria.py`; nada de persistência em disco e nada de rede |
+| `tests/test_memory.py` (E04) | Recuperação na mesma thread, isolamento entre threads, limites do contexto, recusa de `thread_id` inválido e a **chave real do checkpointer** pelo caminho do `config` | 39 testes; **16 mutações deliberadas, 16 detectadas** |
 
 ## Removido ou substituído
 
@@ -487,6 +492,131 @@ mutacoes, contra a suite VERSIONADA:
 A lição repete a do Ciclo 8, num nível acima: **testar o handler não é testar a integração**.
 As três lacunas tinham a mesma raiz — verificar o componente isolado e chamar isso de
 fronteira. A fronteira só está testada quando o teste passa por ela.
+
+### Ciclo 11 — o teste do limite comparava com a própria constante (E04)
+
+**Problema observado.** A campanha de mutação da E04 aplicou 14 mutações; 13 morreram e
+**uma sobreviveu**. A mutação era trivial — subir `MEMORY_MAX_EVIDENCIAS` de `2` para `4` —
+e o teste que deveria pegá-la afirmava:
+
+```python
+assert len(contexto["evidence"]) == MEMORY_MAX_EVIDENCIAS
+```
+
+A mutação move os **dois lados** da igualdade ao mesmo tempo. O teste continuava verde com
+o limite dobrado, isto é, com o dobro de conteúdo atravessando a memória entre execuções —
+exatamente o que o critério do enunciado cobra que seja limitado.
+
+**Alteração realizada.** O número do contrato passou a estar escrito no teste, e não
+apenas referenciado:
+
+- `assert len(contexto["evidence"]) == 2`, com verificação de **qual** evidência sobreviveu
+  (a primeira e a segunda, nessa ordem);
+- teste dedicado `test_o_limite_de_evidencias_previsto_e_dois`, que fixa
+  `MEMORY_MAX_EVIDENCIAS == 2` e explica por que o número está ali.
+
+**Teste executado.** A mutação M06 foi reaplicada, e depois a campanha inteira.
+
+**Resultado obtido.**
+
+```text
+antes  ->  M06 SOBREVIVEU          (158 passed, mutacao invisivel)
+depois ->  M06 morta               (2 testes falham)
+campanha final -> 15 mutacoes, 15 mortas
+```
+
+A lição é sobre onde a asserção se ancora: **um teste que se apoia na constante que deveria
+vigiar não vigia nada**. Para vigiar um número, é preciso escrever o número.
+
+### Ciclo 12 — o lint discordou da exceção escolhida, e tinha razão (E04)
+
+**Problema observado.** `normalize_thread_id` levantava `ValueError` para os dois casos de
+recusa — string vazia e tipo não-string —, por uma simetria que parecia elegante: "para
+quem chama, o identificador não serve, nos dois casos". O `ruff` reprovou:
+
+```text
+TRY004 Prefer `TypeError` exception for invalid type
+  --> src\memory.py:46:9
+```
+
+Exit 1, e V048 exige código 0.
+
+**Alteração realizada.** A saída fácil seria um `# noqa: TRY004`. Em vez disso a distinção
+foi acolhida, porque ela é real e útil a quem chama: string vazia é um **valor** inaceitável
+que chegou da fronteira (`ValueError`); tipo não-string é um **defeito de programação** de
+quem chamou (`TypeError`). O teste e o *docstring* foram atualizados junto — o texto que
+justificava a simetria teria virado documentação falsa.
+
+**Teste executado.** `ruff check .`, a suíte completa e **duas** mutações: remover a
+validação de tipo, e reverter a exceção para `ValueError` com `noqa`.
+
+**Resultado obtido.**
+
+```text
+ruff check .                              ->  All checks passed!  (exit 0)
+pytest -q, sem rede e sem chave           ->  158 passed
+mutacao: remove a validacao de tipo       ->  1 failed
+mutacao: tipo errado volta a ValueError   ->  1 failed
+```
+
+O aviso do lint não era estilo: era um contrato de exceção mal desenhado, e suprimi-lo
+teria congelado o erro.
+
+### Ciclo 13 — o identificador público e a chave real da memória divergiam (E04)
+
+**Problema observado.** Apontado pela auditoria independente. A fachada normalizava o
+`thread_id` e o gravava no estado, mas montava o `config` do LangGraph assim:
+
+```python
+runtime_config["configurable"] = {
+    "thread_id": thread_id,     # o normalizado
+    **configurable,             # ... e o cru do chamador sobrescrevia
+}
+```
+
+Como `configurable` era expandido **depois**, o valor cru vencia. O estado dizia uma coisa
+e o checkpointer gravava sob outra:
+
+```text
+config recebido ................: {'configurable': {'thread_id': '  sessao-1  '}}
+thread_id gravado no estado .....: 'sessao-1'
+thread_id enviado ao checkpointer: '  sessao-1  '
+```
+
+Duas consequências, ambas reproduzidas antes de qualquer correção: a mesma thread lógica se
+partia em **dois checkpoints** — `sessao-1` e `  sessao-1  ` deixavam de se enxergar —, e
+com estado e `config` divergentes o identificador público (`do-estado`) e a chave de
+persistência (`do-config`) apontavam para lugares diferentes.
+
+**Por que a suíte não pegou.** Os 34 testes da E04 informavam o `thread_id` **sempre pelo
+estado**. O caminho pelo `config` — que é justamente o que o LangGraph usa para indexar o
+checkpoint — não era exercitado por nenhum deles. O ponto cego não estava na profundidade
+dos testes, e sim na **porta de entrada** que nenhum deles usava.
+
+**Alteração realizada.**
+
+- `src/graph.py`: o `thread_id` já escolhido e normalizado passou a vir **por último** na
+  composição, `{**configurable, "thread_id": thread_id}`, preservando os demais campos que
+  o chamador tenha posto em `configurable`;
+- `tests/test_memory.py`: **5 testes novos** que observam o `config` **realmente entregue**
+  ao grafo compilado, e não o que a fachada devolve — mais a prova de persistência por
+  `get_state`, que mostra o checkpoint sob a chave normalizada e **nada** sob a crua;
+- `arquivos/execucao/v04-memoria.py`: seção `[5]` nova, com 17 verificações sobre a chave
+  real, incluindo a leitura na fonte de que o `thread_id` vem por último na composição.
+
+**Teste executado.** O defeito foi **reintroduzido** e medido separadamente contra a suíte
+versionada e contra o verificador externo.
+
+**Resultado obtido.**
+
+```text
+corrigido            ->  pytest 163 passed  |  v04 exit 0, 100 verificacoes
+defeito reintroduzido->  pytest 4 failed    |  v04 exit 1, 11 verificacoes falham
+```
+
+A lição não é sobre precedência de dicionário. É sobre **por onde o teste entra**: uma
+unidade pode estar coberta por dezenas de testes e ainda assim ter uma porta que nenhum
+deles abre. O `thread_id` tinha duas — estado e `config` — e só uma estava sendo usada.
 
 ## Resultado consolidado da E01
 
