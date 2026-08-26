@@ -4,6 +4,7 @@
 .env.*.local
 
 # Ambientes virtuais
+.venv
 .venv/
 venv/
 env/
@@ -19,13 +20,14 @@ __pycache__/
 build/
 dist/
 
-# Testes e cobertura
+# Testes, cobertura e lint
 .pytest_cache/
 .ruff_cache/
 .coverage
 htmlcov/
 
-# Relatórios e sinais gerados em tempo de execução
+# Relatórios e sinais gerados em tempo de execução.
+# O diretório permanece versionado e vazio pelo .gitkeep.
 output/*
 !output/.gitkeep
 

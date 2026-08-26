@@ -1,0 +1,8 @@
+2026-07-18 10:15:30.123  INFO 12345 --- [main] c.e.a.Application : Starting Application
+2026-07-18 10:15:31.456 ERROR 12345 --- [main] o.s.boot.SpringApplication : Application run failed
+
+org.springframework.beans.factory.BeanCreationException: Error creating bean with name 'dataSource' defined in class path resource [com/example/config/DatabaseConfig.class]: Failed to instantiate [javax.sql.DataSource]: Factory method 'dataSource' threw exception; nested exception is java.sql.SQLException: Access denied for user 'admin'@'localhost'
+at org.springframework.beans.factory.support.ConstructorResolver.instantiate(ConstructorResolver.java:658)
+at org.springframework.beans.factory.support.ConstructorResolver.instantiateUsingFactoryMethod(ConstructorResolver.java:638)
+Caused by: java.sql.SQLException: Access denied for user 'admin'@'localhost'
+at com.mysql.cj.jdbc.exceptions.SQLError.createSQLException(SQLError.java:129)
