@@ -122,11 +122,9 @@ def test_write_diagnostic_report_blocks_unsafe_name(
 
 
 # ---------------------------------------------------------------------------
-# Portabilidade do caminho devolvido em saida publica (E03).
+# Portabilidade do caminho devolvido em saída pública.
 #
-# Acrescentado apos teste de mutacao: reverter `as_posix()` para
-# `str(target_path)` passava despercebido pela suite versionada, sendo pego
-# apenas pelo script de verificacao, que nao e' entregue.
+# O caminho deve usar separadores POSIX em todas as plataformas.
 # ---------------------------------------------------------------------------
 
 
@@ -163,12 +161,11 @@ def test_read_log_as_response_devolve_caminho_portatil(monkeypatch):
 
 
 # ---------------------------------------------------------------------------
-# Tipo errado na funcao interna (E03, apos auditoria).
+# Contrato de erro para tipo invalido na funcao interna.
 #
-# A funcao interna e' chamada tambem por caminhos que NAO passam por schema
-# Pydantic — a tool MCP e qualquer chamador direto. Antes desta correcao,
-# `read_log_as_response(123)` levantava TypeError em vez de devolver o
-# contrato de erro exigido por V030.
+# A funcao tambem pode ser chamada sem validacao previa do Pydantic — pela
+# tool MCP e por qualquer chamador direto — e deve devolver o mesmo contrato
+# estruturado de erro nas diferentes fronteiras.
 # ---------------------------------------------------------------------------
 
 

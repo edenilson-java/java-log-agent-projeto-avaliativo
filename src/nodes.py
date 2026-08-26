@@ -177,6 +177,16 @@ def make_diagnosticar(llm=None):
 
         context_text = "\n".join(evidence)
 
+        # O contexto recuperado da execução anterior desta mesma thread entra
+        # como texto adicional, não como um template diferente: o prompt
+        # herdado da baseline continua byte a byte o mesmo. Na primeira
+        # execução da thread o bloco é vazio e nada muda.
+        bloco_memoria = formatar_memoria_para_prompt(
+            state.get("memory_context")
+        )
+        if bloco_memoria:
+            context_text = f"{context_text}\n\n{bloco_memoria}"
+
         try:
             model = llm
             if model is None:
@@ -356,8 +366,8 @@ def finalizar_execucao(state: AgentState) -> dict:
     """
     Ponto único de término, por onde passam todas as rotas.
 
-    Calcula a latência da execução. Não altera o status: quem decide o
-    desfecho é o nó anterior. Na E06 este mesmo nó passa a emitir os dois
+    Calcula a latência da execução e grava a memória curta da thread.
+    Não altera o status: quem decide o desfecho é o nó anterior. Na E06 este mesmo nó passa a emitir os dois
     sinais de observabilidade — é por existir um término único que os sinais
     poderão cobrir inclusive as rotas que abortam.
     """
@@ -369,6 +379,7 @@ def finalizar_execucao(state: AgentState) -> dict:
     )
     return {
         "latency_ms": round(latencia, 3),
+        "memory_context": build_memory_context(state),
         "node_history": ["finalizar_execucao"],
     }
 
@@ -434,3 +445,84 @@ def consolidar_analises(state: AgentState) -> dict:
         "category": categoria["category"],
         "node_history": ["consolidar_analises"],
     }
+
+
+# ---------------------------------------------------------------------------
+# Memória curta por thread (E04).
+#
+# O que atravessa duas invocações da mesma thread é um resumo pequeno e
+# fechado — categoria, resumo, status e no máximo duas evidências truncadas —,
+# nunca o estado inteiro. O log bruto e a stack trace completa ficam de fora
+# por decisão, não por esquecimento: o que não é reaproveitado não pode vazar
+# para um prompt, e um limite fixo impede que o contexto cresça a cada
+# execução até dominar a janela do modelo.
+# ---------------------------------------------------------------------------
+
+MEMORY_MAX_EVIDENCIAS = 2
+MEMORY_EVIDENCIA_MAX_CARACTERES = 160
+MEMORY_RESUMO_MAX_CARACTERES = 240
+MEMORY_TRUNCAMENTO_SUFIXO = "..."
+
+
+def truncar_para_memoria(texto: object, limite: int) -> str:
+    """
+    Reduz um texto ao limite, contando o sufixo dentro do orçamento.
+
+    O sufixo entra no total: um limite de 160 devolve no máximo 160
+    caracteres, e não 163. Espaços em branco repetidos são colapsados antes
+    da contagem, para que uma stack trace indentada não gaste o orçamento com
+    recuo.
+    """
+    normalizado = " ".join(str(texto).split())
+    if len(normalizado) <= limite:
+        return normalizado
+
+    corte = max(limite - len(MEMORY_TRUNCAMENTO_SUFIXO), 0)
+    return normalizado[:corte] + MEMORY_TRUNCAMENTO_SUFIXO
+
+
+def build_memory_context(state: AgentState) -> dict:
+    """
+    Monta o contexto que a próxima execução da mesma thread poderá recuperar.
+
+    O resumo vem do diagnóstico quando existe; nas rotas que terminam sem
+    diagnóstico — erro, cancelamento, bloqueio — vem da mensagem de erro, de
+    modo que a thread também se lembre de ter falhado.
+    """
+    diagnostic = state.get("diagnostic") or {}
+    resumo = diagnostic.get("summary") or state.get("error") or ""
+    evidencias_brutas = list(state.get("evidence") or [])
+
+    return {
+        "category": state.get("category") or "Unknown",
+        "summary": truncar_para_memoria(resumo, MEMORY_RESUMO_MAX_CARACTERES),
+        "status": state.get("status") or "unknown",
+        "evidence": [
+            truncar_para_memoria(item, MEMORY_EVIDENCIA_MAX_CARACTERES)
+            for item in evidencias_brutas[:MEMORY_MAX_EVIDENCIAS]
+        ],
+    }
+
+
+def formatar_memoria_para_prompt(memory_context: dict | None) -> str:
+    """
+    Converte o contexto recuperado em texto para o prompt de diagnóstico.
+
+    Devolve string vazia quando não há memória — é a primeira execução da
+    thread. Assim o prompt da primeira invocação continua idêntico ao da
+    baseline, e o contexto só aparece quando de fato foi recuperado.
+    """
+    if not memory_context:
+        return ""
+
+    linhas = [
+        "Contexto recuperado da execução anterior desta mesma thread:",
+        f"- Categoria anterior: {memory_context.get('category', 'Unknown')}",
+        f"- Status anterior: {memory_context.get('status', 'unknown')}",
+        f"- Resumo anterior: {memory_context.get('summary', '')}",
+    ]
+    linhas.extend(
+        f"- Evidência anterior: {item}"
+        for item in memory_context.get("evidence", [])
+    )
+    return "\n".join(linhas)
