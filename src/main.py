@@ -23,7 +23,7 @@ def main():
     print(f"Iniciando análise do log: {file_path}")
 
     app = create_graph()
-    initial_state = {"file_path": file_path}
+    initial_state = {"file_path": file_path, "request_source": "cli"}
 
     try:
         final_state = app.invoke(initial_state)
@@ -31,7 +31,9 @@ def main():
         status = final_state.get("status", "unknown")
         print(f"\nStatus Final: {status}")
 
-        if status == "error":
+        # `blocked` e `cancelled` são desfechos acrescentados pela evolução e
+        # também encerram com código 1: são recusas deliberadas, não sucesso.
+        if status in {"error", "blocked", "cancelled"}:
             print(f"Erro: {final_state.get('error')}")
             sys.exit(1)
 

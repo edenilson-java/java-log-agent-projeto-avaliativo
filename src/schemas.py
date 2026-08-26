@@ -2,7 +2,9 @@ from __future__ import annotations
 
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, StrictStr, field_validator
+
+from src.state import AgentStatus
 
 
 class StrictModel(BaseModel):
@@ -67,3 +69,66 @@ class DiagnosticReport(StrictModel):
         if not v or not str(v).strip():
             raise ValueError("Campo não pode estar vazio.")
         return str(v).strip()
+
+
+# ---------------------------------------------------------------------------
+# Contratos de fronteira (E03).
+#
+# Todos herdam de StrictModel: campo desconhecido vira erro de validacao, e o
+# FastAPI o traduz em HTTP 422. Os tipos sao StrictStr para que numero, nulo
+# ou objeto no lugar de texto tambem sejam recusados, em vez de coagidos.
+# ---------------------------------------------------------------------------
+
+
+class ReadLogRequest(StrictModel):
+    """Entrada da tool read-only de leitura de log."""
+
+    file_path: StrictStr = Field(min_length=1)
+
+
+class ReadLogResponse(StrictModel):
+    """
+    Saída estruturada e limitada da tool read-only.
+
+    É o mesmo contrato devolvido pela função interna, pelo endpoint HTTP e
+    pela tool MCP — é isso que torna os três caminhos equivalentes.
+    """
+
+    status: Literal["success", "error"]
+    file_path: str
+    content: str = ""
+    size_bytes: int = Field(default=0, ge=0)
+    truncated: bool = False
+    error: str | None = None
+
+
+class AnalyzeRequest(StrictModel):
+    """Entrada da análise exposta pela API."""
+
+    file_path: StrictStr = Field(min_length=1)
+    thread_id: StrictStr | None = Field(default=None, min_length=1)
+    cancel_requested: bool = False
+
+
+class AnalyzeResponse(StrictModel):
+    """
+    Resposta observável da análise.
+
+    Não expõe o conteúdo bruto do log: devolve o diagnóstico estruturado e os
+    identificadores que permitem correlacionar a execução nos sinais.
+    """
+
+    status: AgentStatus
+    correlation_id: StrictStr = Field(min_length=1)
+    audit_id: StrictStr = Field(min_length=1)
+    diagnostic: DiagnosticReport | None = None
+    report_path: str | None = None
+    error: str | None = None
+    requires_human: bool = False
+
+
+class HealthResponse(StrictModel):
+    """Contrato mínimo do endpoint de saúde."""
+
+    status: Literal["ok"] = "ok"
+    service: Literal["javalog-agent"] = "javalog-agent"

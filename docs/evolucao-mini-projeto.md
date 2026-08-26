@@ -42,6 +42,10 @@ executado e o resultado obtido.
 | `requirements.txt` | Ampliado de 6 para 12 dependências, agrupadas por finalidade | `pip check` → `No broken requirements found` |
 | `src/graph.py` (E02) | Topologia ampliada: nós de controle, fan-out/fan-in, cinco rotas, término único e fachada `JavaLogGraph` | os 26 testes herdados continuam verdes **sem alteração**; 28 testes novos |
 | `src/nodes.py` (E02) | Acrescentados os nós de controle e as duas branches paralelas; nós e funções herdados preservados | `classificar_log` e `extrair_eventos` mantidos e reaproveitados |
+| `src/tools.py` (E03) | Contrato estruturado `read_log_as_response`, com validação de tipo na entrada; caminho em saída pública com `as_posix()` | os 4 nomes públicos herdados preservados; mensagens literais intactas |
+| `src/schemas.py` (E03) | Acrescentados os cinco contratos de fronteira, todos com `extra="forbid"` e `StrictStr` | tipo errado devolve HTTP 422 |
+| `src/main.py` (E03) | CLI passou a propagar `blocked` e `cancelled` com código 1 | cabeçalho e linhas literais preservados |
+| `tests/test_tools.py` (E03) | Portabilidade de caminho e recusa de tipo errado | fecham pontos cegos revelados por mutação e por auditoria |
 
 ## Adicionado
 
@@ -50,6 +54,10 @@ executado e o resultado obtido.
 | `src/config.py` | Configuração tipada e imutável por variável de ambiente, com a chave em `SecretStr` | **13 verificações** em `v01-fundacao.py`, seções [4] e [5] |
 | `docs/evolucao-mini-projeto.md` | Este documento | — |
 | `tests/test_graph_advanced.py` (E02) | Cobertura do que a evolução acrescentou ao fluxo | 28 testes; 3 mutações deliberadas detectadas |
+| `src/api.py` (E03) | API local FastAPI: `/health`, tool read-only e análise | 200/400/409/422 comprovados |
+| `src/mcp_server.py` (E03) | Servidor MCP local por stdio, somente a capability `read_log` | read-only comprovado: não grava e não chama o modelo |
+| `tests/test_api.py` (E03) | Integração pela fronteira HTTP e CLI | 35 testes |
+| `tests/test_mcp.py` (E03) | Integração pela fronteira MCP, in-process, atravessando `call_tool` | 22 testes |
 
 ## Removido ou substituído
 
@@ -302,6 +310,183 @@ com o operador revertido para '>':
 A lição registrada é sobre o método, não sobre o operador: **teste de limite que só exercita
 valor acima do limite não testa o limite**. A fronteira precisa ser exercitada dos dois
 lados — no valor exato e no imediatamente anterior.
+
+### Ciclo 6 — o SDK do MCP não tem o módulo mais citado (E03)
+
+**Problema observado.** A forma mais divulgada de criar um servidor MCP em Python é
+`from mcp.server.fastmcp import FastMCP`. No SDK instalado (`mcp==2.0.0`) esse módulo
+**não existe**.
+
+**Como foi tratado.** Em vez de escrever o import e descobrir o erro em tempo de execução,
+o pacote instalado foi inspecionado **antes** de qualquer linha de código:
+
+```text
+submodulos de mcp.server: ... lowlevel, mcpserver, models, runner, session, sse, stdio ...
+  --  mcp.server.fastmcp: ModuleNotFoundError
+  OK  mcp.server.mcpserver -> ['AESGCMRequestStateCodec', ...]
+```
+
+A assinatura real de `MCPServer.__init__`, do decorador `.tool()` e de `.run()` foi lida por
+`inspect.signature` antes do uso.
+
+**Alteração realizada.** `src/mcp_server.py` usa `mcp.server.mcpserver.MCPServer`, com
+`.tool(name=..., title=..., description=..., structured_output=True)` e `.run("stdio")`.
+
+**Teste executado.** `tests/test_mcp.py`, in-process, mais o script `v03-tool.py`.
+
+**Resultado obtido.** `MCP tools: ['read_log']`; 15 testes de MCP verdes; nenhum resource e
+nenhum prompt expostos.
+
+A lição: **API de biblioteca se confere no pacote instalado, não na memória**. Custou uma
+inspeção de dois minutos e evitou um erro que só apareceria em execução.
+
+### Ciclo 7 — lint pegou um import adiantado desnecessário (E03)
+
+**Problema observado.** `read_log_as_response` foi escrita com o import de `ReadLogResponse`
+dentro da função e a anotação de retorno entre aspas, por receio de import circular. O ruff
+reprovou:
+
+```text
+F821 Undefined name `ReadLogResponse`
+  --> src\tools.py:203:46
+```
+
+**Diagnóstico.** Não havia ciclo algum: `schemas.py` importa `state.py` e nada mais;
+`tools.py` importar `schemas.py` não fecha ciclo. O import adiantado era precaução infundada
+que criou um defeito real — a anotação ficou irresolvível.
+
+**Alteração realizada.** Import movido para o topo do módulo e anotação de retorno direta.
+
+**Resultado obtido.** `ruff check src tests` → `All checks passed!`; suíte → `100 passed`.
+
+### Ciclo 8 — a suíte entregue tinha ponto cego que só o script pegava (E03)
+
+**Problema observado.** O teste de mutação da E03 revelou algo mais grave que uma regra de
+lint. Das três mutações aplicadas, **duas foram detectadas apenas pelo script de
+verificação** — que vive em `arquivos/execucao/` e **não é entregue**:
+
+| Mutação | Script `v03` | Suíte versionada |
+|---|---|---|
+| `cancelled` deixa de mapear para 409 | detectou | **detectou** |
+| `as_posix()` revertido para `str(path)` | detectou | **cega** |
+| CLI para de propagar `blocked`/`cancelled` | detectou | **cega** |
+
+Ou seja: quem clonasse o repositório e rodasse `pytest` teria a suíte verde com duas
+regressões reais presentes.
+
+**Alteração realizada.** Quatro testes acrescentados à suíte **versionada**:
+
+- `tests/test_tools.py`: portabilidade do caminho devolvido por
+  `write_diagnostic_report` e por `read_log_as_response`;
+- `tests/test_api.py`, seção *Fronteira CLI*: código de saída para os seis desfechos
+  possíveis e preservação das linhas literais da CLI.
+
+Os testes de CLI ficaram em `test_api.py` porque a árvore entregável prevista no plano
+**não contempla** um `test_cli.py`, e acrescentar um 81º arquivo exigiria emenda ao plano.
+
+**Teste executado.** As três mutações foram reaplicadas, agora rodando **somente** a suíte
+versionada.
+
+**Resultado obtido.**
+
+```text
+as_posix() revertido em write_diagnostic_report  ->  1 failed, 108 passed
+CLI para de propagar blocked/cancelled           ->  2 failed, 107 passed
+as_posix() revertido no contrato estruturado     ->  1 failed, 108 passed
+```
+
+A lição é sobre onde a garantia mora: **verificação que não é entregue não protege o
+projeto entregue**. O script de etapa é ferramenta de desenvolvimento; o que defende o
+repositório é a suíte versionada.
+
+### Ciclo 9 — rótulo do verificador ficou factualmente falso (E03)
+
+**Problema observado.** O verificador da E01 classificava `src/tools.py`, `src/main.py` e
+`tests/test_tools.py` como **"corrigidos só por lint"**. Depois que a E03 fez mudanças
+**funcionais** nesses mesmos arquivos, o rótulo passou a afirmar algo falso — e o script
+continuava aprovando, porque a checagem só olhava o conjunto, não o motivo.
+
+**Alteração realizada.** Criado o conjunto `REFATORADOS_E03`, com nota explícita de que um
+arquivo pode aparecer em mais de um conjunto: correção de lint na E01 e mudança funcional na
+E03 são coisas diferentes sobre o mesmo arquivo.
+
+**Resultado obtido.** O relatório do verificador passou a distinguir as quatro categorias, e
+segue reprovando se qualquer arquivo divergir sem declaração:
+
+```text
+..  corrigidos so por lint : ['src/main.py', 'src/nodes.py', 'src/tools.py', ...]
+..  refatorados na E02     : ['src/graph.py', 'src/nodes.py']
+..  refatorados na E03     : ['src/main.py', 'src/schemas.py', 'src/tools.py', 'tests/test_tools.py']
+```
+
+Um verificador que aprova com rótulo errado é pior que um que reprova: ele documenta uma
+inverdade e ninguém percebe.
+
+### Ciclo 10 — três lacunas de fronteira encontradas pela auditoria (E03)
+
+**Problema observado.** A auditoria independente reprovou a E03 com três achados objetivos,
+todos reproduzidos antes de qualquer correção.
+
+**1. A função interna quebrava com tipo errado.**
+
+```text
+read_log_as_response(123)   -> TypeError: argument should be a str or an os.PathLike...
+read_log_as_response(None)  -> status=error   (funcionava por acidente)
+read_log_as_response(["x"]) -> TypeError
+```
+
+V030 exige erro **estruturado** para entrada inválida, tipo errado e vazia. O `None` passava
+apenas porque `if file_path else ""` o tratava como falso — coincidência, não validação.
+A função interna é chamada por caminhos que **não** passam por schema Pydantic: a tool MCP e
+qualquer chamador direto.
+
+**2. Os testes de MCP não atravessavam o servidor.** Chamavam `read_log_tool` diretamente,
+o que exercita o handler mas não o **registro** nem a **execução** pelo `MCPServer`.
+Apresentar isso como teste de integração MCP seria impreciso.
+
+**3. O teste de `blocked` só consultava o dicionário.** Verificava
+`HTTP_POR_STATUS["blocked"] == 409` sem nunca chamar o endpoint. O mapa poderia estar certo e
+o endpoint errado, e o teste continuaria verde.
+
+**Alteração realizada.**
+
+| Lacuna | Correção |
+|---|---|
+| 1 | `read_log_as_response` valida `isinstance(file_path, str)` **antes** de `Path` ou `read_log_file`, devolvendo o contrato de erro completo. 8 testes versionados parametrizados |
+| 2 | 7 testes novos em `tests/test_mcp.py` atravessando `server.call_tool("read_log", ...)`, com a corrotina resolvida no teste |
+| 3 | `test_analyze_bloqueado_devolve_409_no_endpoint`: grafo substituído por um duplo que devolve estado terminal `blocked`, e o endpoint chamado pelo `TestClient` |
+
+Os endpoints HTTP continuam devolvendo **422** para tipo errado, porque o schema valida antes
+da função interna — comprovado para `123`, `None`, lista e dicionário.
+
+**O que a integração real revelou sobre o SDK.** Atravessar `call_tool` mostrou o contrato
+verdadeiro da fronteira MCP, que a chamada direta escondia:
+
+| Situação | Resultado no protocolo |
+|---|---|
+| caminho feliz | `is_error=False`, `structured_content` com o contrato |
+| erro de domínio (path traversal) | `is_error=False` — erro de **domínio** vem estruturado, não como erro de protocolo |
+| tipo errado no payload | `ToolError` levantado pelo SDK **antes** do handler |
+| capability inexistente | `ToolError: Unknown tool` |
+
+**Teste executado.** Suíte completa, verificador da etapa reescrito para usar `call_tool`, e
+três mutações deliberadas — uma por lacuna.
+
+**Resultado obtido.**
+
+```text
+pytest -q      ->  124 passed
+v03-tool.py    ->  97 checagens, 0 falhas, exit 0
+
+mutacoes, contra a suite VERSIONADA:
+  remove a validacao de tipo          ->  7 failed, 117 passed
+  blocked deixa de mapear para 409    ->  2 failed, 122 passed
+  MCP expoe capability de escrita     ->  2 failed, 122 passed
+```
+
+A lição repete a do Ciclo 8, num nível acima: **testar o handler não é testar a integração**.
+As três lacunas tinham a mesma raiz — verificar o componente isolado e chamar isso de
+fronteira. A fronteira só está testada quando o teste passa por ela.
 
 ## Resultado consolidado da E01
 

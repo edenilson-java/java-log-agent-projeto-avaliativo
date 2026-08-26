@@ -1,6 +1,8 @@
 import re
 from pathlib import Path
 
+from src.schemas import ReadLogResponse
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 LOGS_DIR = (PROJECT_ROOT / "examples" / "logs").resolve()
 OUTPUT_DIR = (PROJECT_ROOT / "output").resolve()
@@ -141,7 +143,9 @@ def write_diagnostic_report(
         ) as report_file:
             report_file.write(content)
 
-        return True, str(target_path)
+        # Caminho em saida publica sempre em as_posix(): o separador do
+        # Windows nao pode vazar para relatorio, JSON de API ou teste.
+        return True, target_path.as_posix()
     except Exception as exc:  # noqa: BLE001 - fronteira de I/O
         return False, f"Erro ao gravar relatório: {exc}"
 
@@ -181,3 +185,69 @@ def extract_log_events(
         "exceptions": exceptions,
         "events": events,
     }
+
+
+# ---------------------------------------------------------------------------
+# Contrato estruturado da tool (E03).
+#
+# A funcao abaixo NAO reimplementa regra: envolve `read_log_file`, que ja
+# valida caminho, extensao, existencia, tipo, tamanho e conteudo. E' esse
+# reaproveitamento que garante que os tres caminhos — funcao interna, API e
+# MCP — apliquem exatamente as mesmas verificacoes.
+# ---------------------------------------------------------------------------
+
+# Limite de conteudo devolvido pelo contrato estruturado. Existe para que a
+# tool nao despeje ate 5 MB em uma resposta HTTP ou MCP; o arquivo continua
+# podendo ter ate MAX_LOG_SIZE_BYTES.
+MAX_RESPONSE_CHARS = 20_000
+
+
+TIPO_INVALIDO_MENSAGEM = (
+    "Caminho do arquivo deve ser uma string."
+)
+
+
+def read_log_as_response(file_path: str) -> ReadLogResponse:
+    """
+    Le um log permitido e devolve o contrato estruturado da tool.
+
+    **Nunca levanta excecao para o chamador.** Tipo errado, entrada vazia e
+    erro de dominio saem todos como `status="error"` com mensagem em `error`.
+
+    A checagem de tipo vem ANTES de qualquer uso de `Path` ou de
+    `read_log_file`: `Path(123)` levanta `TypeError`, e a funcao interna e'
+    chamada tambem por caminhos que nao passam por schema Pydantic — a tool
+    MCP e qualquer chamador direto. Nas fronteiras HTTP o tipo ja e' recusado
+    antes, pelo schema, com HTTP 422.
+    """
+    if not isinstance(file_path, str):
+        return ReadLogResponse(
+            status="error",
+            file_path="",
+            content="",
+            size_bytes=0,
+            truncated=False,
+            error=TIPO_INVALIDO_MENSAGEM,
+        )
+
+    caminho_publico = Path(file_path).as_posix() if file_path else ""
+
+    success, result = read_log_file(file_path)
+
+    if not success:
+        return ReadLogResponse(
+            status="error",
+            file_path=caminho_publico,
+            error=result,
+        )
+
+    truncated = len(result) > MAX_RESPONSE_CHARS
+    conteudo = result[:MAX_RESPONSE_CHARS] if truncated else result
+
+    return ReadLogResponse(
+        status="success",
+        file_path=caminho_publico,
+        content=conteudo,
+        size_bytes=len(result.encode("utf-8")),
+        truncated=truncated,
+    )
