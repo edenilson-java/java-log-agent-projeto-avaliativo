@@ -23,7 +23,7 @@ executado e o resultado obtido.
 | Os nove prompts `docs/prompts/01` a `09` | Preservados integralmente, sem reescrita, renumeração ou reformatação | comparação após normalizar fim de linha: **9 de 9 idênticos** à baseline |
 | `read_log_file`, `sanitize_report_name`, `write_diagnostic_report`, `extract_log_events` | Nomes e comportamento públicos preservados | `tests/test_tools.py` herdado, verde |
 | `validate_log_file` e suas mensagens | Preservada, inclusive a mensagem de acesso negado | `tests/test_validation.py` herdado, verde |
-| Mensagens literais de erro, acesso negado e extensão inválida | Conferidas **caractere a caractere**, com acentuação | seção [7] de `v01-fundacao.py` |
+| Mensagens literais de erro, acesso negado e extensão inválida | Conferidas **caractere a caractere**, com acentuação | seção [7] da validação complementar da E01 |
 | `DiagnosticReport` | Campos, domínios e validador preservados | testes herdados |
 | Os cinco status de saída `success`, `success_fallback`, `success_no_errors`, `invalid_output`, `error` | Preservados como estão; os novos são acréscimo | `src/state.py` |
 | Regex de extração de exceções e eventos | Expressões preservadas | contagens dos três logs conferidas: 1/1, 2/1, 0/0 |
@@ -45,7 +45,7 @@ executado e o resultado obtido.
 | `src/tools.py` (E03) | Contrato estruturado `read_log_as_response`, com validação de tipo na entrada; caminho em saída pública com `as_posix()` | os 4 nomes públicos herdados preservados; mensagens literais intactas |
 | `src/schemas.py` (E03) | Acrescentados os cinco contratos de fronteira, todos com `extra="forbid"` e `StrictStr` | tipo errado devolve HTTP 422 |
 | `src/main.py` (E03) | CLI passou a propagar `blocked` e `cancelled` com código 1 | cabeçalho e linhas literais preservados |
-| `tests/test_tools.py` (E03) | Portabilidade de caminho e recusa de tipo errado | fecham pontos cegos revelados por mutação e por verificação independente |
+| `tests/test_tools.py` (E03) | Portabilidade de caminho e recusa de tipo errado | fecham pontos cegos revelados por campanha de mutação e por teste de fronteira |
 | `src/graph.py` (E04) | Checkpointer ligado em `create_graph(checkpointer=...)`; `thread_id` normalizado na fachada e **com precedência sobre o `configurable` do chamador**; limpeza dos campos que pertencem a uma execução só | a segunda invocação de uma thread recupera contexto **sem** herdar o resultado da primeira; identificador público e chave real do checkpointer **coincidem** |
 | `src/nodes.py` (E04) | `finalizar_execucao` grava `memory_context`; `diagnosticar` consome o contexto recuperado | o *template* do prompt herdado permanece **byte a byte** o mesmo — o contexto entra pelo texto das evidências |
 | `README.md` (E04) | Seção **Contexto e memória**, rascunho da E10: estratégia, origem do contexto, o que é descartado e a justificativa de não usar RAG | 10 blocos finais consolidados na E10 |
@@ -59,21 +59,21 @@ executado e o resultado obtido.
 
 | Componente | Finalidade | Evidência |
 |---|---|---|
-| `src/config.py` | Configuração tipada e imutável por variável de ambiente, com a chave em `SecretStr` | **13 verificações** em `v01-fundacao.py`, seções [4] e [5] |
+| `src/config.py` | Configuração tipada e imutável por variável de ambiente, com a chave em `SecretStr` | **13 verificações** na validação complementar da E01, seções [4] e [5] |
 | `docs/evolucao-mini-projeto.md` | Este documento | — |
 | `tests/test_graph_advanced.py` (E02) | Cobertura do que a evolução acrescentou ao fluxo | 28 testes; 3 mutações deliberadas detectadas |
 | `src/api.py` (E03) | API local FastAPI: `/health`, tool read-only e análise | 200/400/409/422 comprovados |
 | `src/mcp_server.py` (E03) | Servidor MCP local por stdio, somente a capability `read_log` | read-only comprovado: não grava e não chama o modelo |
 | `tests/test_api.py` (E03) | Integração pela fronteira HTTP e CLI | 35 testes |
 | `tests/test_mcp.py` (E03) | Integração pela fronteira MCP, in-process, atravessando `call_tool` | 22 testes |
-| `src/memory.py` (E04) | Checkpointer `InMemorySaver` e montagem do config de thread | **100 verificações** em `v04-memoria.py`; nada de persistência em disco e nada de rede |
+| `src/memory.py` (E04) | Checkpointer `InMemorySaver` e montagem do config de thread | **100 verificações** na validação complementar da etapa; nada de persistência em disco e nada de rede |
 | `tests/test_memory.py` (E04) | Recuperação na mesma thread, isolamento entre threads, limites do contexto, recusa de `thread_id` inválido e a **chave real do checkpointer** pelo caminho do `config` | 39 testes; **16 mutações deliberadas, 16 detectadas** |
-| `src/security.py` (E05) | Política de autonomia, detecção das três famílias e redaction de dez formatos de credencial | **158 verificações** no verificador independente da etapa; não importa `ChatOpenAI`, `httpx`, `socket` nem `subprocess` |
+| `src/security.py` (E05) | Política de autonomia, detecção das três famílias e redaction de dez formatos de credencial | **158 verificações** na validação complementar da etapa; não importa `ChatOpenAI`, `httpx`, `socket` nem `subprocess` |
 | `tests/test_security.py` (E05) | Aceitação do cenário adversarial e cobertura da governança | 98 testes; **21 mutações deliberadas, 21 detectadas** |
 | `examples/logs/adversarial-prompt-injection.log` (E05) | Fixture do cenário de risco, integralmente fictícia | dispara as três famílias e **não contém segredo**, provado por `redact_sensitive_text` devolvendo o arquivo inalterado |
 | `docs/seguranca/politica-autonomia.md` (E05) | O que é permitido, o que é bloqueado, o que exige humano | — |
 | `docs/seguranca/cenario-adversarial.md` (E05) | Entrada, comportamento esperado, resultado obtido e evidência | execução real da CLI, código de saída 1 |
-| `src/observability.py` (E06) | Dois sinais JSONL correlacionados, com redaction recursiva, escrita serializada e a causa do fallback registrada | **172 verificações** no verificador independente da etapa; não importa `ChatOpenAI`, `httpx`, `requests` nem `socket` |
+| `src/observability.py` (E06) | Dois sinais JSONL correlacionados, com redaction recursiva, escrita serializada e a causa do fallback registrada | **172 verificações** na validação complementar da etapa; não importa `ChatOpenAI`, `httpx`, `requests` nem `socket` |
 | `tests/test_observability.py` (E06) | Correlação, redaction, investigação de execução real, todas as rotas e o contrato de auditoria | 56 testes |
 | `tests/test_resilience.py` (E06) | Timeout configurável, tentativa única, fallback nas quatro formas e a causa registrada nos sinais | 25 testes |
 | `docs/qa/diff-baseline-real.patch` (E07) | Diff real entre a baseline transportada e o estado evoluído | 19 arquivos, `+4540/-64`; `git apply --check` em código zero e reprodução idêntica numa árvore limpa |
@@ -128,7 +128,7 @@ literais herdados      ->  5 de 5 idênticos, caractere a caractere
 
 A reparentetização do prompt do LLM foi o ponto de maior risco, porque mexe no texto
 enviado ao modelo. Por isso o prompt renderizado passou a ser **verificação permanente**
-do script da etapa: as mensagens `system` e `user` são renderizadas com valores sintéticos
+da validação complementar: as mensagens `system` e `user` são renderizadas com valores sintéticos
 e comparadas **caractere a caractere** com os literais esperados. Antes disso, a
 preservação do prompt era afirmada; agora é provada a cada execução.
 
@@ -169,7 +169,7 @@ após remover a isca        ->  NADA ENCONTRADO — zero ocorrências   (exit 0)
 O controle negativo é o que dá valor ao resultado: sem ele, "zero ocorrências" seria
 indistinguível de um scanner quebrado.
 
-**Correção posterior, identificada em verificação independente.** A primeira versão do scanner mantinha uma
+**Correção posterior, na revisão da própria lista de isenções.** A primeira versão do scanner mantinha uma
 lista de isenções com três itens, e dois deles eram indefensáveis:
 
 | Item isento | Por que a isenção estava errada |
@@ -232,7 +232,7 @@ Uma terceira forma — `path_map` com lista como valor — foi testada e **não 
 o LangGraph tenta usar o valor como chave e levanta `TypeError: unhashable type: 'list'`.
 
 **Teste executado.** Grafo mínimo isolado para as três formas; depois
-`test_branches_nao_executam_no_erro_de_leitura` e o script `v02-grafo.py`; e uma **mutação
+`test_branches_nao_executam_no_erro_de_leitura` e a checagem automatizada da etapa; e uma **mutação
 deliberada** revertendo o fan-out para a forma descartada.
 
 **Resultado obtido.**
@@ -245,8 +245,8 @@ suíte completa                  ->  54 passed
 
 ### Ciclo 4 — a verificação de transporte acusava falsa divergência (E02)
 
-**Problema observado.** Ao rodar o verificador da E01 como teste de regressão dentro da
-E02, ele reprovou apontando cinco arquivos supostamente corrompidos, entre eles o prompt
+**Problema observado.** Ao rodar a checagem de transporte da E01 como teste de regressão
+dentro da E02, ela acusou cinco arquivos supostamente corrompidos, entre eles o prompt
 histórico `01` e os três logs de exemplo — justamente os arquivos que **não podem** mudar.
 
 **Diagnóstico.** O conteúdo **versionado** estava intacto. O `git show HEAD:` do prompt `01`
@@ -258,15 +258,15 @@ trabalho**: no Windows o Git converte LF para CRLF no checkout.
 | `docs/prompts/01-...md` | 21 LF, 776 bytes | 21 CRLF, 797 bytes | não | **sim** |
 | `examples/logs/null-pointer-exception.log` | 6 LF, 490 bytes | 6 CRLF, 496 bytes | não | **sim** |
 
-O defeito era do verificador: a seção de transporte comparava **bytes brutos**, enquanto o
-plano determina comparação **após normalizar fim de linha**. A seção dos prompts já
+O defeito era da própria checagem: a seção de transporte comparava **bytes brutos**, enquanto
+o critério do projeto exige comparação **após normalizar fim de linha**. A seção dos prompts já
 normalizava corretamente; a de transporte, não.
 
 **Alteração realizada.** A comparação de transporte passou a normalizar fim de linha, e foi
 declarado o conjunto `REFATORADOS_E02` com os arquivos que a E02 legitimamente alterou, para
-que o script siga falhando se qualquer outro arquivo divergir sem declaração.
+que a checagem siga falhando se qualquer outro arquivo divergir sem declaração.
 
-**Teste executado.** `v01-fundacao.py` reexecutado como regressão dentro da E02.
+**Teste executado.** A checagem de transporte da E01 reexecutada como regressão dentro da E02.
 
 **Resultado obtido.**
 
@@ -276,12 +276,12 @@ após a correção    ->  TODAS AS VERIFICACOES DA E01 PASSARAM  (38 checagens, 
 ```
 
 Este ciclo confirma, na prática, duas decisões tomadas antes: escrever os arquivos em modo
-binário no transporte, e a exigência do plano de que a comparação dos nove prompts seja
+binário no transporte, e a exigência de que a comparação dos nove prompts seja
 sempre feita após normalização.
 
-### Ciclo 5 — erro de fronteira no limite de passos, identificado em verificação independente (E02)
+### Ciclo 5 — erro de fronteira no limite de passos (E02)
 
-**Problema observado.** Uma verificação independente reprovou a E02 apontando que
+**Problema observado.** A reprodução do defeito na rota de limite mostrou que
 
 ```text
 route_inicializar({"current_step": 32, "max_steps": 32})
@@ -306,12 +306,12 @@ por acidente: teria passado igual com o operador errado — que foi o que aconte
 | `tests/test_graph_advanced.py` | `test_route_inicializar_limite_na_igualdade` (32/32 → limite) e `test_route_inicializar_continua_um_passo_antes_do_limite` (31/32 → continuar) |
 | `tests/test_graph_advanced.py` | `test_limite_de_passos_encerra_exatamente_na_fronteira`: entrada com `current_step=9` e `max_steps=10`; após o incremento de `inicializar_execucao` o passo vira 10 e a execução tem de encerrar ali, sem validar, ler, escrever **nem chamar o modelo** |
 | `tests/test_graph_advanced.py` | `test_um_passo_antes_do_limite_a_execucao_prossegue`: o outro lado da fronteira segue normalmente |
-| verificador independente da etapa | verificação da igualdade na rota isolada **e** no fluxo completo |
+| validação complementar da etapa | verificação da igualdade na rota isolada **e** no fluxo completo |
 
 Para provar que o modelo não é acionado, foi criada uma subclasse local `ContandoLLM` com
 contador de chamadas, em vez de alterar o `fake_llm.py` herdado.
 
-**Teste executado.** Suíte completa, verificador da etapa, e uma **mutação deliberada**
+**Teste executado.** Suíte completa, validação complementar, e uma **mutação deliberada**
 revertendo o operador para `>`.
 
 **Resultado obtido.**
@@ -322,10 +322,10 @@ fronteira, os dois lados:
   step=9  max=10 -> continuar     step=10 max=10 -> limite
 
 pytest -q            ->  58 passed
-v02-grafo.py         ->  62 checagens, 0 falhas, exit 0
+validacao complementar ->  62 checagens, 0 falhas, exit 0
 
 com o operador revertido para '>':
-  v02-grafo.py       ->  exit 1  — FALHOU route_inicializar: limite NA IGUALDADE
+  validacao complementar ->  exit 1  — FALHOU route_inicializar: limite NA IGUALDADE
   pytest             ->  2 failed, 30 passed
 ```
 
@@ -354,7 +354,7 @@ A assinatura real de `MCPServer.__init__`, do decorador `.tool()` e de `.run()` 
 **Alteração realizada.** `src/mcp_server.py` usa `mcp.server.mcpserver.MCPServer`, com
 `.tool(name=..., title=..., description=..., structured_output=True)` e `.run("stdio")`.
 
-**Teste executado.** `tests/test_mcp.py`, in-process, mais o script `v03-tool.py`.
+**Teste executado.** `tests/test_mcp.py`, in-process, mais a checagem automatizada da etapa.
 
 **Resultado obtido.** `MCP tools: ['read_log']`; 15 testes de MCP verdes; nenhum resource e
 nenhum prompt expostos.
@@ -381,17 +381,17 @@ que criou um defeito real — a anotação ficou irresolvível.
 
 **Resultado obtido.** `ruff check src tests` → `All checks passed!`; suíte → `100 passed`.
 
-### Ciclo 8 — a suíte entregue tinha ponto cego que só o script pegava (E03)
+### Ciclo 8 — a suíte versionada tinha ponto cego revelado por mutação (E03)
 
-**Problema observado.** O teste de mutação da E03 revelou algo mais grave que uma regra de
-lint. Das três mutações aplicadas, **duas foram detectadas apenas pelo script de
-verificação** — o verificador independente da etapa, que **não é entregue**:
+**Problema observado.** A campanha de mutação da E03 revelou algo mais grave que uma regra de
+lint. Das três mutações aplicadas, **duas passaram sem que a suíte versionada as
+detectasse**:
 
-| Mutação | Script `v03` | Suíte versionada |
-|---|---|---|
-| `cancelled` deixa de mapear para 409 | detectou | **detectou** |
-| `as_posix()` revertido para `str(path)` | detectou | **cega** |
-| CLI para de propagar `blocked`/`cancelled` | detectou | **cega** |
+| Mutação | Suíte versionada |
+|---|---|
+| `cancelled` deixa de mapear para 409 | **detectou** |
+| `as_posix()` revertido para `str(path)` | **cega** |
+| CLI para de propagar `blocked`/`cancelled` | **cega** |
 
 Ou seja: quem clonasse o repositório e rodasse `pytest` teria a suíte verde com duas
 regressões reais presentes.
@@ -403,8 +403,8 @@ regressões reais presentes.
 - `tests/test_api.py`, seção *Fronteira CLI*: código de saída para os seis desfechos
   possíveis e preservação das linhas literais da CLI.
 
-Os testes de CLI ficaram em `test_api.py` porque a árvore entregável prevista no plano
-**não contempla** um `test_cli.py`, e acrescentar um 81º arquivo exigiria emenda ao plano.
+Os testes de CLI ficaram em `test_api.py` porque a árvore entregável prevista
+**não contempla** um `test_cli.py`, e acrescentar um 81º arquivo mudaria a estrutura acordada.
 
 **Teste executado.** As três mutações foram reaplicadas, agora rodando **somente** a suíte
 versionada.
@@ -417,23 +417,23 @@ CLI para de propagar blocked/cancelled           ->  2 failed, 107 passed
 as_posix() revertido no contrato estruturado     ->  1 failed, 108 passed
 ```
 
-A lição é sobre onde a garantia mora: **verificação que não é entregue não protege o
-projeto entregue**. O script de etapa é ferramenta de desenvolvimento; o que defende o
+A lição é sobre onde a garantia mora: **só protege o repositório aquilo que está versionado
+junto com ele**. Checagem auxiliar é ferramenta de desenvolvimento; o que defende o
 repositório é a suíte versionada.
 
-### Ciclo 9 — rótulo do verificador ficou factualmente falso (E03)
+### Ciclo 9 — um rótulo de classificação ficou factualmente falso (E03)
 
-**Problema observado.** O verificador da E01 classificava `src/tools.py`, `src/main.py` e
+**Problema observado.** A checagem de transporte da E01 classificava `src/tools.py`, `src/main.py` e
 `tests/test_tools.py` como **"corrigidos só por lint"**. Depois que a E03 fez mudanças
-**funcionais** nesses mesmos arquivos, o rótulo passou a afirmar algo falso — e o script
-continuava aprovando, porque a checagem só olhava o conjunto, não o motivo.
+**funcionais** nesses mesmos arquivos, o rótulo passou a afirmar algo falso — e a checagem
+continuava passando, porque olhava só o conjunto, não o motivo.
 
 **Alteração realizada.** Criado o conjunto `REFATORADOS_E03`, com nota explícita de que um
 arquivo pode aparecer em mais de um conjunto: correção de lint na E01 e mudança funcional na
 E03 são coisas diferentes sobre o mesmo arquivo.
 
-**Resultado obtido.** O relatório do verificador passou a distinguir as quatro categorias, e
-segue reprovando se qualquer arquivo divergir sem declaração:
+**Resultado obtido.** O relatório passou a distinguir as quatro categorias, e segue
+falhando se qualquer arquivo divergir sem declaração:
 
 ```text
 ..  corrigidos so por lint : ['src/main.py', 'src/nodes.py', 'src/tools.py', ...]
@@ -441,13 +441,13 @@ segue reprovando se qualquer arquivo divergir sem declaração:
 ..  refatorados na E03     : ['src/main.py', 'src/schemas.py', 'src/tools.py', 'tests/test_tools.py']
 ```
 
-Um verificador que aprova com rótulo errado é pior que um que reprova: ele documenta uma
+Uma checagem que passa com rótulo errado é pior que uma que falha: ela documenta uma
 inverdade e ninguém percebe.
 
-### Ciclo 10 — três lacunas de fronteira identificadas em verificação independente (E03)
+### Ciclo 10 — três lacunas de fronteira nos contratos externos (E03)
 
-**Problema observado.** Uma verificação independente reprovou a E03 com três achados objetivos,
-todos reproduzidos antes de qualquer correção.
+**Problema observado.** Três lacunas objetivas nos contratos de fronteira da E03,
+todas reproduzidas antes de qualquer correção.
 
 **1. A função interna quebrava com tipo errado.**
 
@@ -491,14 +491,14 @@ verdadeiro da fronteira MCP, que a chamada direta escondia:
 | tipo errado no payload | `ToolError` levantado pelo SDK **antes** do handler |
 | capability inexistente | `ToolError: Unknown tool` |
 
-**Teste executado.** Suíte completa, verificador da etapa reescrito para usar `call_tool`, e
+**Teste executado.** Suíte completa, validação complementar reescrita para usar `call_tool`, e
 três mutações deliberadas — uma por lacuna.
 
 **Resultado obtido.**
 
 ```text
 pytest -q      ->  124 passed
-v03-tool.py    ->  97 checagens, 0 falhas, exit 0
+validacao complementar ->  97 checagens, 0 falhas, exit 0
 
 mutacoes, contra a suite VERSIONADA:
   remove a validacao de tipo          ->  7 failed, 117 passed
@@ -581,7 +581,7 @@ teria congelado o erro.
 
 ### Ciclo 13 — o identificador público e a chave real da memória divergiam (E04)
 
-**Problema observado.** Identificado em verificação independente. A fachada normalizava o
+**Problema observado.** A fachada normalizava o
 `thread_id` e o gravava no estado, mas montava o `config` do LangGraph assim:
 
 ```python
@@ -618,17 +618,17 @@ dos testes, e sim na **porta de entrada** que nenhum deles usava.
 - `tests/test_memory.py`: **5 testes novos** que observam o `config` **realmente entregue**
   ao grafo compilado, e não o que a fachada devolve — mais a prova de persistência por
   `get_state`, que mostra o checkpoint sob a chave normalizada e **nada** sob a crua;
-- verificador independente da etapa: seção nova, com 17 verificações sobre a chave
+- validação complementar: seção nova, com 17 verificações sobre a chave
   real, incluindo a leitura na fonte de que o `thread_id` vem por último na composição.
 
 **Teste executado.** O defeito foi **reintroduzido** e medido separadamente contra a suíte
-versionada e contra o verificador externo.
+versionada e contra a validação complementar.
 
 **Resultado obtido.**
 
 ```text
-corrigido            ->  pytest 163 passed  |  v04 exit 0, 100 verificacoes
-defeito reintroduzido->  pytest 4 failed    |  v04 exit 1, 11 verificacoes falham
+corrigido            ->  pytest 163 passed  |  complementar exit 0, 100 verificacoes
+defeito reintroduzido->  pytest 4 failed    |  complementar exit 1, 11 verificacoes falham
 ```
 
 A lição não é sobre precedência de dicionário. É sobre **por onde o teste entra**: uma
@@ -754,7 +754,7 @@ descrevia. Em ambos os casos, o teste passava — e não protegia nada.
 
 ### Ciclo 17 — a redação cobria um formato de cada família, não todos (E05)
 
-**Problema observado.** Identificado em verificação independente. A redação reconhecia
+**Problema observado.** A redação reconhecia
 `sk-`, `ghp_` e `Bearer` — e apenas esses. A reprodução, por formato, mediu tanto a detecção
 quanto o vazamento no estado devolvido:
 
@@ -789,7 +789,7 @@ Seis dos nove formatos atravessavam inteiros — apareciam no prompt, no `log_co
 - foi acrescentada uma **guarda de início**, `(?<![A-Za-z0-9_])`, sem a qual identificadores
   legítimos do domínio — `disk_utilizationPercentageValue…`, `task_executorThreadPool…`,
   `risk_scoreCalculated…` — passariam a ser redigidos como se fossem credencial;
-- o verificador de varredura de segredos recebeu os mesmos formatos, continuando a montar os
+- o scanner de segredos recebeu os mesmos formatos, continuando a montar os
   padrões em tempo de execução.
 
 **Teste executado.** Dez formatos parametrizados na suíte versionada, cada um exigindo
@@ -803,7 +803,7 @@ decisão tomada.
 ```text
 depois da correcao: os 9 formatos -> contains=True, redigiu=True, vaza=False
 suite versionada  -> 261 passed  (228 -> 261)
-verificador da etapa -> 158 verificacoes, exit 0
+validacao complementar -> 158 verificacoes, exit 0
 controle negativo da varredura -> 3 arquivos x 8 formatos, 24 acusacoes, 24 restauracoes
 campanha de mutacao -> 21 mutacoes, 21 mortas
 ```
@@ -859,7 +859,7 @@ isso acompanha a mudança em vez de recusá-la.
 
 ### Ciclo 19 — os sinais diziam que houve fallback, mas não por quê (E06)
 
-**Problema observado.** Identificado em verificação independente. Nas quatro formas de falha
+**Problema observado.** Nas quatro formas de falha
 do modelo, os dois sinais registravam `decision = diagnosed_by_fallback` e
 `error = null`:
 
@@ -893,18 +893,19 @@ distinguir ausência de chave de timeout, de exceção ou de saída fora do sche
 **Teste executado.** Treze testes versionados novos, cruzando resiliência e observabilidade
 nas quatro formas, mais controles negativos: sucesso e log limpo com `error` nulo, a causa não
 vazando para a execução seguinte da thread, a causa redigida quando traz credencial, e o teto
-aplicado. E três mutações medidas separadamente contra a suíte versionada e o verificador.
+aplicado. E três mutações medidas separadamente contra a suíte versionada e contra a
+validação complementar.
 
 **Resultado obtido.**
 
 ```text
-depois da correcao  -> as 4 causas presentes, distintas e identificando a forma
-suite versionada    -> 342 passed  (329 -> 342)
-verificador da etapa-> 172 verificacoes, exit 0
+depois da correcao     -> as 4 causas presentes, distintas e identificando a forma
+suite versionada       -> 342 passed  (329 -> 342)
+validacao complementar -> 172 verificacoes, exit 0
 
-mutacao: sinal volta a ler so o error publico  -> 7 failed  | verificador: 13 falhas
-mutacao: fallback deixa de preservar a causa   -> 10 failed | verificador: 13 falhas
-mutacao: causa sem redaction e sem teto        -> 1 failed  | verificador: 1 falha
+mutacao: sinal volta a ler so o error publico  -> 7 failed  | checagem: 13 falhas
+mutacao: fallback deixa de preservar a causa   -> 10 failed | checagem: 13 falhas
+mutacao: causa sem redaction e sem teto        -> 1 failed  | checagem: 1 falha
 ```
 
 A lição é sobre onde um contrato termina: **zerar um campo para preservar a semântica pública
@@ -965,8 +966,8 @@ antes  ->  2 failed
 depois ->  3 passed
 
 reproducao pela fronteira: 200 -> <ausente> | 409 -> <ausente>
-suite versionada -> 345 passed  (342 -> 345)
-verificador da etapa -> 63 verificacoes, exit 0
+suite versionada       -> 345 passed  (342 -> 345)
+validacao complementar -> 69 verificacoes, exit 0
 ```
 
 A lição é sobre o custo de um campo vazio numa saída observável: **omitir é honesto, zerar
@@ -986,4 +987,4 @@ valor fixo faz quem lê acreditar que já a encontrou.
 | `pytest -q` sem rede e sem chave | `26 passed` |
 | `pip check` | `No broken requirements found` |
 | Varredura de segredos | zero ocorrências, com **dois** controles negativos, um deles no `.env.example` |
-| Script `v01-fundacao.py` | **38 checagens, 0 falhas** |
+| Validação complementar da E01 | **38 checagens, 0 falhas** |
