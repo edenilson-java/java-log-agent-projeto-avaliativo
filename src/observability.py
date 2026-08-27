@@ -31,7 +31,8 @@ CAMPOS_NAO_REGISTRAVEIS = frozenset({
     "credencial",
 })
 
-# Campos do estado que compõem o campo livre do log de aplicação.
+# Só entram campos que a execução produziu: o código HTTP é decidido na
+# fronteira, depois desta emissão.
 CAMPOS_DE_DETALHE = (
     "category",
     "thread_id",
@@ -43,7 +44,6 @@ CAMPOS_DE_DETALHE = (
     "security_flags",
     "node_history",
     "report_path",
-    "http_status",
 )
 
 # Teto da causa registrada. Mensagem de integração externa pode trazer o

@@ -5,12 +5,16 @@ Exercitam a tool e o fluxo completo através da fronteira HTTP, conferindo o
 contrato e o mapeamento entre desfecho do domínio e código de status.
 """
 
+import json
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 from fastapi.testclient import TestClient
 
+from src import observability, tools
 from src.api import app, get_graph
+from src.config import load_config
 
 LOG_LIMPO = "examples/logs/application-clean.log"
 LOG_COM_ERRO = "examples/logs/null-pointer-exception.log"
@@ -366,3 +370,69 @@ def test_cli_preserva_o_cabecalho_literal_herdado(capsys):
     assert "Status Final: success_no_errors" in saida
     assert "Relatório gerado com sucesso em: output/report.md" in saida
     assert "Modo de diagnóstico: deterministic" in saida
+
+
+# ------------------------------------------- fronteira HTTP e observabilidade
+
+
+@pytest.fixture
+def sinais_isolados(tmp_path, monkeypatch):
+    """Confina os dois sinais e o relatório ao diretório do teste."""
+    saida = tmp_path / "sinais"
+    monkeypatch.setenv("OUTPUT_ROOT", str(saida))
+    monkeypatch.setenv("APP_LOG_PATH", str(saida / "agent-events.jsonl"))
+    monkeypatch.setenv("AUDIT_LOG_PATH", str(saida / "agent-audit.jsonl"))
+    isolada = load_config()
+
+    def ler(caminho):
+        p = Path(caminho)
+        if not p.exists():
+            return []
+        return [
+            json.loads(linha)
+            for linha in p.read_text(encoding="utf-8").splitlines()
+            if linha.strip()
+        ]
+
+    with (
+        patch.object(tools, "OUTPUT_DIR", (tmp_path / "relatorios").resolve()),
+        patch.object(observability, "load_config", lambda: isolada),
+    ):
+        yield lambda: (
+            ler(isolada.app_log_path),
+            ler(isolada.audit_log_path),
+        )
+
+
+@pytest.mark.parametrize(
+    ("caminho", "codigo_esperado"),
+    [
+        (LOG_LIMPO, 200),
+        ("examples/logs/adversarial-prompt-injection.log", 409),
+    ],
+    ids=["200", "409"],
+)
+def test_sinal_nao_publica_status_http(
+    client, sinais_isolados, caminho, codigo_esperado
+):
+    """O código HTTP é decidido depois da emissão; o sinal não o afirma."""
+    resposta = client.post("/api/v1/analyze", json={"file_path": caminho})
+    assert resposta.status_code == codigo_esperado
+
+    eventos, auditoria = sinais_isolados()
+    assert len(eventos) == 1
+
+    assert "http_status" not in eventos[0]["details"]
+    assert "http_status" not in auditoria[0]
+
+
+def test_sinal_da_requisicao_correlaciona_com_a_resposta(client, sinais_isolados):
+    """Os identificadores devolvidos pela API são os gravados nos sinais."""
+    corpo = client.post("/api/v1/analyze", json={"file_path": LOG_LIMPO}).json()
+
+    eventos, auditoria = sinais_isolados()
+
+    assert eventos[0]["correlation_id"] == corpo["correlation_id"]
+    assert auditoria[0]["correlation_id"] == corpo["correlation_id"]
+    assert eventos[0]["audit_id"] == corpo["audit_id"]
+    assert eventos[0]["details"]["request_source"] == "api"

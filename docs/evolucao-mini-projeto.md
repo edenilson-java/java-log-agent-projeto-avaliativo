@@ -53,6 +53,7 @@ executado e o resultado obtido.
 | `src/graph.py` (E05) | A governança entra entre o fan-in e a decisão de diagnóstico | o grafo passa de 15 para **16 nós**; `consolidar_analises` não alcança mais a decisão sem passar pela política |
 | `src/nodes.py` (E06) | `finalizar_execucao` emite os dois sinais correlacionados; `diagnosticar` conta a tentativa e parametriza o modelo pela configuração | toda rota emite os dois sinais, inclusive erro, bloqueio, cancelamento e limite |
 | `src/schemas.py` (E06) | Contrato `AuditEvent` para a linha de auditoria | recusa status fora do domínio, campo extra, latência negativa e campo faltando |
+| `src/observability.py` (E07) | O campo livre do log de aplicação deixa de publicar `http_status` | o sinal passa a conter apenas o que a execução produziu |
 
 ## Adicionado
 
@@ -75,6 +76,10 @@ executado e o resultado obtido.
 | `src/observability.py` (E06) | Dois sinais JSONL correlacionados, com redaction recursiva, escrita serializada e a causa do fallback registrada | **172 verificações** no verificador independente da etapa; não importa `ChatOpenAI`, `httpx`, `requests` nem `socket` |
 | `tests/test_observability.py` (E06) | Correlação, redaction, investigação de execução real, todas as rotas e o contrato de auditoria | 56 testes |
 | `tests/test_resilience.py` (E06) | Timeout configurável, tentativa única, fallback nas quatro formas e a causa registrada nos sinais | 25 testes |
+| `docs/qa/diff-baseline-real.patch` (E07) | Diff real entre a baseline transportada e o estado evoluído | 19 arquivos, `+4540/-64`; `git apply --check` em código zero e reprodução idêntica numa árvore limpa |
+| `docs/qa/code-review-ia.md` (E07) | Revisão assistida por IA do diff, com o achado, a correção e os resultados | quatro elementos rastreáveis: localização, problema, trecho anterior e diff da correção |
+| `docs/qa/estrategia-testes.md` (E07) | Classificação da suíte em integração, E2E, aceitação e unidade | integração declarada como o tipo que cumpre o mínimo do item 4.7 |
+| `docs/qa/priorizacao-risco.md` (E07) | Ordem dos cenários por custo da falha | bloqueio adversarial em primeiro, com justificativa |
 
 ## Removido ou substituído
 
@@ -905,6 +910,68 @@ mutacao: causa sem redaction e sem teto        -> 1 failed  | verificador: 1 fal
 A lição é sobre onde um contrato termina: **zerar um campo para preservar a semântica pública
 não pode apagar a informação técnica que outro consumidor precisa**. O `error` vazio é
 correto para quem lê a resposta; era errado para quem lê o sinal.
+
+### Ciclo 20 — o log de aplicação publicava um código HTTP que nunca foi medido (E07)
+
+**Problema observado.** A revisão do diff real entre a baseline transportada e o estado
+evoluído foi conduzida por uma pergunta simples: *algum campo é publicado sem ter sido
+medido?* A busca por produtores de `http_status` devolveu uma única ocorrência — a própria
+inicialização com zero:
+
+```text
+src/graph.py:64          "http_status": 0,      <- inicializacao
+src/observability.py:46  "http_status",         <- publicacao no sinal
+src/state.py:102         http_status: int       <- declaracao
+```
+
+Declarado, zerado, publicado — e **nunca escrito**. O motivo é estrutural: o código HTTP é
+decidido na fronteira, a partir do `status` do domínio, **depois** que o grafo retorna; o
+sinal é emitido **dentro** do grafo, no ponto único de término. Quando a linha é gravada, o
+código ainda não existe.
+
+Medido pela fronteira HTTP:
+
+```text
+entrada                                  HTTP real   no sinal
+examples/logs/application-clean.log            200          0   <-- diverge
+examples/logs/adversarial-prompt-injection     409          0   <-- diverge
+```
+
+Zero não é código HTTP. Quem investigasse uma execução leria um valor que contradiz a
+resposta efetivamente devolvida — e a trilha de investigação é justamente o artefato
+consultado quando algo dá errado.
+
+**Alteração realizada.** `http_status` saiu da tupla de campos publicados no campo livre.
+O campo permanece no estado, disponível para a fronteira que quiser usá-lo; o que foi
+retirado é a **afirmação** que não podia ser sustentada.
+
+Três alternativas foram descartadas, e por quê: preencher o campo no grafo acoplaria o
+núcleo ao protocolo HTTP, que a CLI e o servidor MCP não têm; emitir um segundo par de
+sinais na fronteira quebraria o invariante de uma linha por execução em cada sinal, que é o
+que torna a correlação legível; e remover o campo do estado alteraria um contrato já
+estabelecido.
+
+**Teste executado.** Um teste de **integração** em `tests/test_api.py`, parametrizado nos
+dois desfechos que produzem códigos diferentes — `200` no log limpo e `409` no cenário
+bloqueado. Ele entra pela porta HTTP, confere o código devolvido e depois lê a linha
+gravada no sinal.
+
+**Resultado obtido.**
+
+```text
+antes  ->  2 failed
+           AssertionError: assert 'http_status' not in {'category': 'Unknown',
+             'current_step': 1, 'http_status': 0, 'llm_attempts': 0, ...}
+depois ->  3 passed
+
+reproducao pela fronteira: 200 -> <ausente> | 409 -> <ausente>
+suite versionada -> 345 passed  (342 -> 345)
+verificador da etapa -> 63 verificacoes, exit 0
+```
+
+A lição é sobre o custo de um campo vazio numa saída observável: **omitir é honesto, zerar
+é falso**. Um campo ausente faz quem lê procurar a informação em outro lugar; um campo com
+valor fixo faz quem lê acreditar que já a encontrou.
 
 ## Resultado consolidado da E01
 
