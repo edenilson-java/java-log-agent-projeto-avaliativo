@@ -53,6 +53,7 @@ CAMPOS_POR_EXECUCAO: dict[str, Any] = {
     "redacted": False,
     "requires_human": False,
     "blocked_reason": "",
+    "fallback_reason": "",
     "cancel_requested": False,
     "correlation_id": "",
     "audit_id": "",

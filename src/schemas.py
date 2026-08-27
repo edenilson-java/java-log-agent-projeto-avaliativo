@@ -132,3 +132,18 @@ class HealthResponse(StrictModel):
 
     status: Literal["ok"] = "ok"
     service: Literal["javalog-agent"] = "javalog-agent"
+
+
+# Registro de auditoria: subconjunto decisório, sem payload livre.
+class AuditEvent(StrictModel):
+    """Linha tipada do registro de auditoria, correlacionada ao log de
+    aplicação por `correlation_id` e `audit_id`."""
+
+    timestamp: StrictStr = Field(min_length=1)
+    correlation_id: StrictStr = Field(min_length=1)
+    audit_id: StrictStr = Field(min_length=1)
+    stage: StrictStr = Field(min_length=1)
+    decision: StrictStr = Field(min_length=1)
+    status: AgentStatus
+    latency_ms: float = Field(ge=0)
+    error: str | None = None

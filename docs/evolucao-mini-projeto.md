@@ -51,6 +51,8 @@ executado e o resultado obtido.
 | `README.md` (E04) | Seção **Contexto e memória**, rascunho da E10: estratégia, origem do contexto, o que é descartado e a justificativa de não usar RAG | 10 blocos finais consolidados na E10 |
 | `src/nodes.py` (E05) | Nó `verificar_seguranca`: aplica a política e redige tudo o que deriva do arquivo lido | `log_content`, `exceptions`, `extracted_events`, `evidence`, `parallel_findings` e `memory_context` saem redigidos |
 | `src/graph.py` (E05) | A governança entra entre o fan-in e a decisão de diagnóstico | o grafo passa de 15 para **16 nós**; `consolidar_analises` não alcança mais a decisão sem passar pela política |
+| `src/nodes.py` (E06) | `finalizar_execucao` emite os dois sinais correlacionados; `diagnosticar` conta a tentativa e parametriza o modelo pela configuração | toda rota emite os dois sinais, inclusive erro, bloqueio, cancelamento e limite |
+| `src/schemas.py` (E06) | Contrato `AuditEvent` para a linha de auditoria | recusa status fora do domínio, campo extra, latência negativa e campo faltando |
 
 ## Adicionado
 
@@ -70,6 +72,9 @@ executado e o resultado obtido.
 | `examples/logs/adversarial-prompt-injection.log` (E05) | Fixture do cenário de risco, integralmente fictícia | dispara as três famílias e **não contém segredo**, provado por `redact_sensitive_text` devolvendo o arquivo inalterado |
 | `docs/seguranca/politica-autonomia.md` (E05) | O que é permitido, o que é bloqueado, o que exige humano | — |
 | `docs/seguranca/cenario-adversarial.md` (E05) | Entrada, comportamento esperado, resultado obtido e evidência | execução real da CLI, código de saída 1 |
+| `src/observability.py` (E06) | Dois sinais JSONL correlacionados, com redaction recursiva, escrita serializada e a causa do fallback registrada | **172 verificações** no verificador independente da etapa; não importa `ChatOpenAI`, `httpx`, `requests` nem `socket` |
+| `tests/test_observability.py` (E06) | Correlação, redaction, investigação de execução real, todas as rotas e o contrato de auditoria | 56 testes |
+| `tests/test_resilience.py` (E06) | Timeout configurável, tentativa única, fallback nas quatro formas e a causa registrada nos sinais | 25 testes |
 
 ## Removido ou substituído
 
@@ -807,6 +812,99 @@ a morrer.
 A lição: **cobrir uma família de formato não é cobrir a família**. Um único exemplar por
 padrão dá a sensação de cobertura e esconde as variações — e são justamente as variações que
 os provedores introduzem com o tempo.
+
+### Ciclo 18 — a lista de campos protegidos era vigiada por ela mesma (E06)
+
+**Problema observado.** A campanha de mutação da E06 aplicou 21 mutações; 20 morreram e **uma
+sobreviveu**: esvaziar `CAMPOS_NAO_REGISTRAVEIS`, o conjunto de chaves cujo valor nunca vai
+para arquivo — `log_content`, `api_key`, `senha`, `token` e outras seis. Com o conjunto
+esvaziado, um payload contendo qualquer dessas chaves passaria a ser gravado nos dois sinais.
+
+O teste que deveria pegar isso parametrizava sobre o próprio conjunto:
+
+```python
+@pytest.mark.parametrize("chave", sorted(CAMPOS_NAO_REGISTRAVEIS))
+def test_scrub_substitui_campo_de_nome_sensivel(chave):
+    ...
+```
+
+Esvaziar o conjunto não fazia o teste falhar — fazia a parametrização encolher. O teste
+continuava verde exercitando exatamente as chaves que ainda restassem, que no limite eram
+nenhuma.
+
+**Alteração realizada.** Os dez nomes passaram a estar **escritos no arquivo de teste**, numa
+lista própria, e um teste novo compara as duas listas. A parametrização usa a lista escrita,
+não a constante vigiada.
+
+**Teste executado.** A mutação foi reaplicada, e depois a campanha inteira.
+
+**Resultado obtido.**
+
+```text
+antes  ->  esvaziar CAMPOS_NAO_REGISTRAVEIS: SOBREVIVEU (328 passed)
+depois ->  morta: 2 testes falham
+campanha final -> 21 mutacoes, 21 mortas
+suite          -> 329 passed
+```
+
+É a terceira vez que a mesma armadilha aparece — no Ciclo 11 era um limite numérico, no Ciclo
+16 um dado de entrada que não alcançava o comportamento, aqui um conjunto de nomes. A forma é
+sempre a mesma: **o teste toma como referência aquilo que deveria estar verificando**, e por
+isso acompanha a mudança em vez de recusá-la.
+
+### Ciclo 19 — os sinais diziam que houve fallback, mas não por quê (E06)
+
+**Problema observado.** Identificado em verificação independente. Nas quatro formas de falha
+do modelo, os dois sinais registravam `decision = diagnosed_by_fallback` e
+`error = null`:
+
+```text
+forma                  status             error publico  error nos sinais
+ausencia de chave      success_fallback   ''             None   <-- causa perdida
+timeout                success_fallback   ''             None   <-- causa perdida
+excecao                success_fallback   ''             None   <-- causa perdida
+saida invalida         success_fallback   ''             None   <-- causa perdida
+```
+
+A raiz é uma colisão entre dois contratos legítimos. O nó `tratar_saida_invalida` zera
+`state["error"]` porque o fallback é um desfecho de **sucesso** — contrato herdado da
+baseline, e correto. Mas a observabilidade lia exclusivamente esse campo. O resultado é que
+os sinais sabiam **que** houve fallback e não **por quê**: uma investigação não conseguiria
+distinguir ausência de chave de timeout, de exceção ou de saída fora do schema.
+
+**Alteração realizada.** Um campo interno, e não uma mudança no contrato público:
+
+- `src/state.py`: campo `fallback_reason`, declarado como interno — a resposta pública do
+  fallback continua com `error == ""`;
+- `src/graph.py`: `fallback_reason` entra na limpeza dos campos de uma execução só, para que
+  a causa de uma execução não reapareça na seguinte da mesma thread;
+- `src/nodes.py`: `tratar_saida_invalida` captura a causa **antes** de zerar `error`, e usa
+  uma causa determinística quando a etapa anterior não reportou nenhuma;
+- `src/observability.py`: o campo `error` dos dois sinais passa a receber o erro final, ou a
+  causa do fallback, ou `None` quando de fato não houve erro. A causa atravessa a redaction
+  existente e recebe teto — mensagem de integração externa pode trazer o payload inteiro, e
+  uma linha de sinal não é lugar para ele.
+
+**Teste executado.** Treze testes versionados novos, cruzando resiliência e observabilidade
+nas quatro formas, mais controles negativos: sucesso e log limpo com `error` nulo, a causa não
+vazando para a execução seguinte da thread, a causa redigida quando traz credencial, e o teto
+aplicado. E três mutações medidas separadamente contra a suíte versionada e o verificador.
+
+**Resultado obtido.**
+
+```text
+depois da correcao  -> as 4 causas presentes, distintas e identificando a forma
+suite versionada    -> 342 passed  (329 -> 342)
+verificador da etapa-> 172 verificacoes, exit 0
+
+mutacao: sinal volta a ler so o error publico  -> 7 failed  | verificador: 13 falhas
+mutacao: fallback deixa de preservar a causa   -> 10 failed | verificador: 13 falhas
+mutacao: causa sem redaction e sem teto        -> 1 failed  | verificador: 1 falha
+```
+
+A lição é sobre onde um contrato termina: **zerar um campo para preservar a semântica pública
+não pode apagar a informação técnica que outro consumidor precisa**. O `error` vazio é
+correto para quem lê a resposta; era errado para quem lê o sinal.
 
 ## Resultado consolidado da E01
 
