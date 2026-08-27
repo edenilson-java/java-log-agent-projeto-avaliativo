@@ -974,6 +974,62 @@ A lição é sobre o custo de um campo vazio numa saída observável: **omitir �
 é falso**. Um campo ausente faz quem lê procurar a informação em outro lugar; um campo com
 valor fixo faz quem lê acreditar que já a encontrou.
 
+### Ciclo 21 — a série malformada era recusada na categoria errada de erro (E08)
+
+**Problema observado.** O lint reprovou `src/devops.py` na primeira execução:
+
+```text
+TRY004 Prefer `TypeError` exception for invalid type
+  --> src\devops.py:45:9
+```
+
+`load_pipeline_runs` levantava `ValueError` para **todas** as recusas, inclusive
+para o caso em que o arquivo não traz sequer o objeto da série — uma lista, um
+número ou uma string solta no lugar do envelope.
+
+**Diagnóstico.** As recusas não são todas da mesma natureza. Série sem o rótulo
+`simulated`, série vazia, série sem uma das fases: a **forma** está certa e o
+**conteúdo** está errado — isso é `ValueError`. Arquivo que não contém o objeto
+da série: a forma é que está errada — isso é `TypeError`. Colapsar as duas
+categorias num tipo só obriga quem chama a inspecionar a **mensagem de texto**
+para distinguir um caso do outro, e mensagem não é contrato: ela pode ser
+reescrita a qualquer momento sem que ninguém considere isso uma quebra.
+
+**Alteração realizada.**
+
+```diff
+     if not isinstance(dados, dict):
+-        raise ValueError(
++        raise TypeError(
+             "Série recusada: o arquivo não contém um objeto com os metadados "
+             "da série."
+         )
+```
+
+A docstring passou a declarar as duas exceções separadamente, e o teste do caso
+passou a exigir `TypeError`.
+
+**Teste executado.** `ruff check src tests`, a suíte versionada e uma **campanha
+de mutação** com sete mutações sobre `src/devops.py` — rótulo aceito sem
+verificação, crescimento sem saturação, pesos trocados, taxa de falha sobre a
+fase errada, arredondamento reduzido, série vazia aceita e piso do crescimento
+removido.
+
+**Resultado obtido.**
+
+```text
+antes  ->  ruff: TRY004 em src/devops.py, 1 error
+depois ->  ruff: All checks passed!
+suite versionada    -> 364 passed  (345 -> 364)
+campanha de mutacao -> 7 mutacoes, 7 detectadas pela suite versionada
+```
+
+A lição é sobre o que uma recusa comunica: recusar é fácil, recusar **na
+categoria certa** é o que torna a recusa utilizável. Quem precise tratar
+"arquivo corrompido" de um jeito e "série mal preenchida" de outro consegue
+fazê-lo por `except`, sem ler texto de mensagem — e o texto segue livre para
+mudar sem quebrar ninguém.
+
 ## Resultado consolidado da E01
 
 | Verificação | Resultado |

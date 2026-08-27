@@ -1,0 +1,51 @@
+name: CI
+
+# Roda em qualquer branch e em todo Pull Request para as branches de integracao.
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - develop
+      - main
+
+# Somente leitura do conteudo: o pipeline valida, nao publica nada.
+permissions:
+  contents: read
+
+jobs:
+  qualidade:
+    name: Lint, testes e validacao equivalente a build
+    # windows-latest reproduz o ambiente em que a suite e as evidencias deste
+    # repositorio foram produzidas.
+    runs-on: windows-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Obter o codigo
+        uses: actions/checkout@v4
+
+      - name: Preparar o Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # Etapa 1 de 3 — lint.
+      - name: Lint
+        run: ruff check src tests
+
+      # Etapa 2 de 3 — testes. Sem chave de modelo no ambiente: a suite roda
+      # inteira pelo caminho de fallback, sem rede externa e sem credencial.
+      - name: Testes
+        run: pytest -q --disable-warnings
+
+      # Etapa 3 de 3 — validacao equivalente a build, conforme o item 4.8.
+      - name: Compilacao
+        run: python -m compileall -q src
