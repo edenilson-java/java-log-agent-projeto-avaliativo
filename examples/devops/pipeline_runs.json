@@ -1,0 +1,37 @@
+{
+  "simulated": true,
+  "purpose": "Serie SIMULADA de execucoes de pipeline, criada para exercitar a deteccao de anomalia e a estimativa de risco do agente. Nao representa execucoes reais de nenhum pipeline: as duracoes e os status foram definidos antes de qualquer teste e sao valores de referencia congelados. O campo simulated e obrigatorio e load_pipeline_runs recusa a serie sem ele.",
+  "source": "definida pelo projeto, sem coleta em sistema real",
+  "runs": [
+    {
+      "id": "baseline-1",
+      "phase": "baseline",
+      "duration_seconds": 12,
+      "status": "passed"
+    },
+    {
+      "id": "baseline-2",
+      "phase": "baseline",
+      "duration_seconds": 14,
+      "status": "passed"
+    },
+    {
+      "id": "baseline-3",
+      "phase": "baseline",
+      "duration_seconds": 15,
+      "status": "failed"
+    },
+    {
+      "id": "recent-1",
+      "phase": "recent",
+      "duration_seconds": 30,
+      "status": "passed"
+    },
+    {
+      "id": "recent-2",
+      "phase": "recent",
+      "duration_seconds": 35,
+      "status": "failed"
+    }
+  ]
+}
