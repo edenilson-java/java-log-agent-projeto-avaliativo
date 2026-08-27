@@ -80,6 +80,10 @@ class AgentState(TypedDict, total=False):
     blocked_reason: str
     cancel_requested: bool
 
+    # Causa técnica do fallback, preservada para os sinais. Não é campo
+    # público: a resposta do fallback continua com `error` vazio.
+    fallback_reason: str
+
     # --- controle de fluxo e parada ---
     current_step: int
     max_steps: int

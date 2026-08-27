@@ -1,4 +1,3 @@
-import os
 from pathlib import Path
 from time import perf_counter
 from uuid import uuid4
@@ -7,6 +6,8 @@ from langchain_core.prompts import ChatPromptTemplate
 from langchain_openai import ChatOpenAI
 from pydantic import ValidationError
 
+from src.config import load_config
+from src.observability import emit_signals
 from src.schemas import DiagnosticReport
 from src.security import (
     contains_secret,
@@ -25,6 +26,12 @@ LIMITE_MENSAGEM = (
 )
 CANCELAMENTO_MENSAGEM = (
     "Execução cancelada antes de qualquer leitura ou chamada externa."
+)
+
+# Usada quando o diagnóstico chega ausente ou inválido sem que a etapa
+# anterior tenha reportado causa.
+CAUSA_FALLBACK_PADRAO = (
+    "Diagnóstico ausente ou inválido; a integração não reportou causa."
 )
 
 DIAGNOSTIC_PROMPT = ChatPromptTemplate.from_messages([
@@ -172,9 +179,8 @@ def make_diagnosticar(llm=None):
     """
     Cria o nó de diagnóstico com o LLM injetado como dependência.
 
-    Se nenhum LLM for fornecido, o nó constrói um ChatOpenAI em tempo de
-    execução (exige OPENAI_API_KEY). Em testes, injete um FakeLLM que
-    implemente with_structured_output(schema).invoke(messages).
+    Sem LLM fornecido, constrói um `ChatOpenAI` parametrizado pela
+    configuração.
     """
 
     def diagnosticar(state: AgentState) -> dict:
@@ -194,13 +200,21 @@ def make_diagnosticar(llm=None):
         if bloco_memoria:
             context_text = f"{context_text}\n\n{bloco_memoria}"
 
+        # O limite protege a tentativa, não o sucesso: por isso é contada antes.
+        tentativas = state.get("llm_attempts", 0) + 1
+
         try:
             model = llm
             if model is None:
-                api_key = os.environ.get("OPENAI_API_KEY")
-                if not api_key:
+                config = load_config()
+                if not config.has_openai_key:
                     raise ValueError("OPENAI_API_KEY não configurada.")
-                model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+                model = ChatOpenAI(
+                    model=config.openai_model,
+                    temperature=config.llm_temperature,
+                    timeout=config.llm_timeout_seconds,
+                    max_retries=0,
+                )
 
             messages = DIAGNOSTIC_PROMPT.invoke({
                 "category": category,
@@ -212,10 +226,11 @@ def make_diagnosticar(llm=None):
             diag_dict = result.model_dump()
             diag_dict["diagnostic_mode"] = "llm"
 
-            return {"diagnostic": diag_dict}
+            return {"diagnostic": diag_dict, "llm_attempts": tentativas}
         except Exception as exc:  # noqa: BLE001 - fronteira do LLM
             return {
                 "error": f"Falha na geração do diagnóstico com LLM: {exc}",
+                "llm_attempts": tentativas,
             }
 
     return diagnosticar
@@ -240,7 +255,17 @@ def validar_saida(state: AgentState) -> dict:
 
 
 def tratar_saida_invalida(state: AgentState) -> dict:
-    """Fallback determinístico quando o LLM falha ou a saída é inválida."""
+    """
+    Fallback determinístico quando o LLM falha ou a saída é inválida.
+
+    O `error` público é zerado — o fallback é um desfecho de sucesso —, e a
+    causa técnica segue em `fallback_reason`, de onde os sinais a leem.
+    """
+    causa = (
+        state.get("error")
+        or state.get("fallback_reason")
+        or CAUSA_FALLBACK_PADRAO
+    )
     exceptions = state.get("exceptions", [])
     evidence = state.get("evidence", [])
     category = state.get("category", "Unknown")
@@ -270,6 +295,7 @@ def tratar_saida_invalida(state: AgentState) -> dict:
         "status": "success_fallback",
         "diagnostic": diagnostic,
         "error": "",
+        "fallback_reason": causa,
     }
 
 
@@ -373,10 +399,8 @@ def finalizar_execucao(state: AgentState) -> dict:
     """
     Ponto único de término, por onde passam todas as rotas.
 
-    Calcula a latência da execução e grava a memória curta da thread.
-    Não altera o status: quem decide o desfecho é o nó anterior. Na E06 este mesmo nó passa a emitir os dois
-    sinais de observabilidade — é por existir um término único que os sinais
-    poderão cobrir inclusive as rotas que abortam.
+    Calcula a latência, grava a memória da thread e emite os dois sinais.
+    Não altera o status: quem decide o desfecho é o nó anterior.
     """
     started_at = state.get("started_at")
     latencia = (
@@ -384,11 +408,20 @@ def finalizar_execucao(state: AgentState) -> dict:
         if isinstance(started_at, (int, float))
         else 0.0
     )
-    return {
+    saida = {
         "latency_ms": round(latencia, 3),
         "memory_context": build_memory_context(state),
         "node_history": ["finalizar_execucao"],
     }
+
+    # A latência já calculada entra nos sinais desta mesma execução.
+    erros = emit_signals({**state, **saida})
+    if erros:
+        saida["observability_errors"] = [
+            *state.get("observability_errors", []),
+            *erros,
+        ]
+    return saida
 
 
 # ---------------------------------------------------------------------------
