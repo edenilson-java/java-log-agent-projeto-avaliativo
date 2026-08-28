@@ -1030,6 +1030,81 @@ categoria certa** é o que torna a recusa utilizável. Quem precise tratar
 fazê-lo por `except`, sem ler texto de mensagem — e o texto segue livre para
 mudar sem quebrar ninguém.
 
+### Ciclo 22 — o fluxo exportado não sobrevivia a uma importação real (E09)
+
+**Problema observado.** O arquivo do fluxo passava em toda a verificação
+estrutural — JSON válido, três nós, tipos corretos, encadeamento conferido — e
+mesmo assim **não era importável**. A tentativa real, pela linha de comando da
+ferramenta, parou antes de criar o fluxo:
+
+```text
+Importing 1 workflows...
+An error occurred while importing workflows.
+SQLITE_CONSTRAINT: NOT NULL constraint failed: workflow_entity.id
+```
+
+Corrigido isso, a **execução** falhou no segundo nó:
+
+```text
+NodeApiError: The service refused the connection - perhaps it is offline
+httpCode: ECONNREFUSED
+connect ECONNREFUSED ::1:8000
+```
+
+**Diagnóstico.** Dois defeitos independentes, nenhum deles detectável sem
+executar de verdade:
+
+| Defeito | Causa |
+|---|---|
+| Importação recusada | o arquivo não trazia o campo `id` de topo. O schema aceito pela importação o exige; a validação por `json.loads` nunca cobriria isso, porque o arquivo **é** JSON válido |
+| Conexão recusada | o endereço do nó de integração usava `localhost`. Em Node 24 esse nome resolve primeiro para `::1`, e a aplicação, ligada a `127.0.0.1`, recusa a conexão nesse endereço |
+
+O segundo caso é o mais instrutivo: `localhost` e `127.0.0.1` parecem
+intercambiáveis e não são. A resolução depende do sistema, da versão do runtime
+e da ordem das famílias de endereço — três coisas que o arquivo exportado não
+controla.
+
+**Alteração realizada.**
+
+```diff
+ {
++  "id": "javalog-agent-lowcode",
+   "name": "JavaLog Agent - analise de log por webhook",
+```
+
+```diff
+-        "url": "http://localhost:8000/api/v1/analyze",
++        "url": "http://127.0.0.1:8000/api/v1/analyze",
+```
+
+Cada correção ganhou um teste versionado que a guarda: um exige o campo de topo,
+outro exige endereço IPv4 explícito e porta, e um terceiro recusa qualquer nó
+que volte a apontar para `localhost`.
+
+**Teste executado.** Importação e execução reais numa instância local da
+ferramenta, mais a suíte versionada e a verificação da etapa.
+
+**Resultado obtido.**
+
+```text
+antes  ->  importacao: SQLITE_CONSTRAINT  |  execucao 1: error, ECONNREFUSED ::1:8000
+depois ->  importacao: Successfully imported 1 workflow
+           execucao 2: success  -> HTTP 200, diagnostico completo
+           execucao 3: success  -> HTTP 200, erro de dominio propagado no corpo
+
+Webhook Trigger      success    0 ms
+HTTP Request         success  738 ms
+Respond to Webhook   success    6 ms
+
+suite versionada -> 383 passed  (380 -> 383)
+```
+
+A lição é sobre o limite da verificação estrutural: **um artefato de integração
+só está comprovado quando o sistema de destino o aceita e o executa**. Os testes
+de forma diziam a verdade sobre o arquivo e, ainda assim, não diziam nada sobre
+o que aconteceria na importação — porque a forma estava certa e o contrato do
+destino era outro.
+
 ## Resultado consolidado da E01
 
 | Verificação | Resultado |
