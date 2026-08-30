@@ -235,6 +235,14 @@ def test_reproducao_fixa_a_versao_do_n8n_em_todos_os_comandos():
     assert set(invocacoes) == {"n8n@2.36.8"}
 
 
+PAYLOAD = '{"file_path":"examples/logs/application-clean.log"}'
+README = PROJECT_ROOT / "README.md"
+
+
+def blocos_powershell(texto):
+    return [b for lang, b in re.findall(r"```(powershell)\n(.*?)```", texto, re.DOTALL)]
+
+
 def test_reproducao_traz_sequencias_para_powershell_e_bash():
     texto = REPRODUCAO.read_text(encoding="utf-8")
 
@@ -247,6 +255,20 @@ def test_reproducao_traz_sequencias_para_powershell_e_bash():
 
     assert "```bash" in texto
     assert "export N8N_USER_FOLDER=" in texto
+
+
+def test_chamada_powershell_envia_json_valido():
+    """Envia o JSON por stdin para não depender do parser de argumentos nativos."""
+    for documento in (REPRODUCAO, README):
+        texto = documento.read_text(encoding="utf-8")
+        chamadas = [b for b in blocos_powershell(texto) if "curl.exe" in b]
+
+        assert chamadas, f"{documento.name}: nenhuma chamada PowerShell"
+        for bloco in chamadas:
+            assert PAYLOAD in bloco
+            assert '\\"' not in bloco
+            assert "--data-binary" in bloco
+            assert " -d " not in bloco
 
 
 def test_reproducao_cobre_os_tres_comandos_do_n8n_nas_duas_sequencias():

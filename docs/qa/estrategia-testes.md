@@ -48,8 +48,8 @@ fronteira de protocolo envolvida; o alvo é o comportamento do sistema completo.
 
 **Aceitação** — o teste reproduz o critério do enunciado tal como ele seria
 verificado por quem avalia: entrada adversarial, ação bloqueada, mensagem
-literal conferida caractere a caractere, zero chamada ao modelo, zero escrita e
-código de saída 1.
+literal conferida caractere a caractere, zero chamada ao modelo, zero relatório
+de diagnóstico gerado e código de saída 1.
 
 ## Como a suíte é executada
 

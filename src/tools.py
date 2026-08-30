@@ -143,9 +143,9 @@ def write_diagnostic_report(
         ) as report_file:
             report_file.write(content)
 
-        # Caminho em saida publica sempre em as_posix(): o separador do
-        # Windows nao pode vazar para relatorio, JSON de API ou teste.
-        return True, target_path.as_posix()
+        # A escrita usa o caminho absoluto confinado; a saída pública usa
+        # caminho relativo com separadores POSIX.
+        return True, target_path.relative_to(OUTPUT_DIR.parent).as_posix()
     except Exception as exc:  # noqa: BLE001 - fronteira de I/O
         return False, f"Erro ao gravar relatório: {exc}"
 

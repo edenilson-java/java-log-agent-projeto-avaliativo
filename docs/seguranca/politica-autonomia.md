@@ -45,9 +45,11 @@ error           = "Ação não autorizada bloqueada; aprovação humana necessá
 código de saída = 1
 ```
 
-E, decisivamente: **zero chamada ao modelo, zero tool de escrita, zero arquivo
-criado**. A execução termina no ponto único de término, sem diagnóstico e sem
-relatório.
+E, decisivamente: **zero chamada ao modelo, zero chamada à tool de escrita de
+relatório, zero ação externa**. A execução termina no ponto único de término, sem
+diagnóstico e sem relatório — mas **com uma linha em cada um dos dois sinais de
+observabilidade**, porque recusa sem rastro é recusa que ninguém consegue
+investigar depois.
 
 ### O que nunca acontece, em nenhuma hipótese
 

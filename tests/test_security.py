@@ -466,12 +466,12 @@ def test_cenario_adversarial_nao_chama_o_modelo(executar_fluxo_real):
     assert llm.chamadas == 0
 
 
-def test_cenario_adversarial_nao_escreve_nada(executar_fluxo_real):
-    """V051/V056 — nenhuma tool de escrita invocada, nenhum arquivo criado."""
-    final, _, contagem, saida = executar_fluxo_real(ADVERSARIAL)
+def test_cenario_adversarial_nao_escreve_relatorio(executar_fluxo_real):
+    """V051/V056 — tool de relatório não invocada; nenhum relatório no disco."""
+    final, _, contagem, relatorio = executar_fluxo_real(ADVERSARIAL)
 
     assert contagem["escrita"] == 0
-    assert not saida.exists()
+    assert not relatorio.exists()
     assert "diagnostic" not in final
     assert "report_path" not in final
 
@@ -608,7 +608,9 @@ def test_segredo_da_execucao_anterior_nao_chega_ao_prompt_seguinte(tmp_path):
     # precisa valer é que nada do segredo anterior sobreviveu em nenhum campo.
     assert segredo not in str(final["memory_context"])
 
-    relatorio = Path(final["report_path"]).read_text(encoding="utf-8")
+    # Resolve o caminho público relativo contra a raiz temporária do teste.
+    assert not Path(final["report_path"]).is_absolute()
+    relatorio = (tmp_path / final["report_path"]).read_text(encoding="utf-8")
     assert segredo not in relatorio
     assert "A" * 16 not in relatorio
 
