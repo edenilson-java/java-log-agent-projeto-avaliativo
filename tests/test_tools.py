@@ -95,11 +95,15 @@ def test_write_diagnostic_report_writes_only_to_output(
         "# Diagnostic\n",
     )
 
-    saved_file = Path(report_path)
+    arquivo_real = output_dir / "diagnostic.md"
 
     assert success is True
-    assert saved_file == output_dir / "diagnostic.md"
-    assert saved_file.read_text(encoding="utf-8") == "# Diagnostic\n"
+    assert arquivo_real.is_file()
+    assert arquivo_real.read_text(encoding="utf-8") == "# Diagnostic\n"
+    assert report_path == "output/diagnostic.md"
+    assert not Path(report_path).is_absolute()
+    assert report_path.startswith("output/")
+    assert "\\" not in report_path
 
 
 def test_write_diagnostic_report_blocks_unsafe_name(

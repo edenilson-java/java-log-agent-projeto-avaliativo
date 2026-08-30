@@ -66,14 +66,22 @@ Regras que valem para as duas sequências abaixo:
   Nenhum dado da instância local entra na árvore versionável;
 - o endereço da aplicação é **`127.0.0.1:8000`**, e **não** `localhost` — o
   motivo está em *Ponto mais provável de falha*;
-- nenhuma sequência depende de variável configurada em outro terminal.
+- nenhuma sequência depende de variável configurada em outro terminal;
+- **todos os comandos com caminho relativo** — inclusive o executável do `.venv`
+  e o `--input` do `import:workflow` — devem ser executados **a partir da raiz do
+  repositório**;
+- a aplicação sobe pelo **interpretador do `.venv`**, indicado explicitamente:
+  assim a sequência não depende de o ambiente virtual estar ativado. No Windows,
+  em uma nova janela do PowerShell sem o ambiente virtual ativado, chamar
+  `python` diretamente pode acionar o Python global, que não possui as
+  dependências instaladas no `.venv`.
 
 ### A. Windows PowerShell
 
 **Terminal 1 — aplicação:**
 
 ```powershell
-python -m uvicorn src.api:app --host 127.0.0.1 --port 8000
+.\.venv\Scripts\python.exe -m uvicorn src.api:app --host 127.0.0.1 --port 8000
 ```
 
 **Terminal 2 — n8n.** Os três comandos, na ordem, no mesmo terminal:
@@ -90,21 +98,25 @@ O `start` **fica em primeiro plano** — deixe o terminal 2 ocupado.
 **Terminal 3 — chamada ao webhook:**
 
 ```powershell
-curl.exe -X POST http://127.0.0.1:5678/webhook/javalog-agent `
+$corpo = '{"file_path":"examples/logs/application-clean.log"}'
+$corpo | curl.exe -X POST http://127.0.0.1:5678/webhook/javalog-agent `
   -H "Content-Type: application/json" `
-  -d '{\"file_path\":\"examples/logs/application-clean.log\"}'
+  --data-binary "@-"
 ```
 
 Use **`curl.exe`**, e não `curl`: no Windows PowerShell, `curl` é apelido de
 `Invoke-WebRequest`, que tem outra sintaxe e não aceita estes argumentos.
 
-### B. Linux, macOS ou Git Bash
+### B. Linux ou macOS
 
 **Terminal 1 — aplicação:**
 
 ```bash
-python -m uvicorn src.api:app --host 127.0.0.1 --port 8000
+./.venv/bin/python -m uvicorn src.api:app --host 127.0.0.1 --port 8000
 ```
+
+No Git Bash sobre Windows, substitua `./.venv/bin/python` por
+`./.venv/Scripts/python.exe`; os demais comandos Bash permanecem iguais.
 
 **Terminal 2 — n8n.** Os três comandos, na ordem, no mesmo terminal:
 
@@ -190,8 +202,8 @@ Trecho não sensível da resposta devolvida pelo webhook:
 }
 ```
 
-O campo `report_path` foi omitido deste trecho por conter o caminho absoluto da
-máquina onde a execução ocorreu.
+O recorte histórico omite `report_path`. No contrato público atual, novas
+respostas expõem o caminho relativo e portátil `output/<nome>.md`.
 
 ### Execução 3 — caminho inválido
 

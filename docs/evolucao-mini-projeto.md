@@ -80,6 +80,19 @@ executado e o resultado obtido.
 | `docs/qa/code-review-ia.md` (E07) | Revisão assistida por IA do diff, com o achado, a correção e os resultados | quatro elementos rastreáveis: localização, problema, trecho anterior e diff da correção |
 | `docs/qa/estrategia-testes.md` (E07) | Classificação da suíte em integração, E2E, aceitação e unidade | integração declarada como o tipo que cumpre o mínimo do item 4.7 |
 | `docs/qa/priorizacao-risco.md` (E07) | Ordem dos cenários por custo da falha | bloqueio adversarial em primeiro, com justificativa |
+| `.github/workflows/ci.yml` (E08) | Pipeline com lint, testes e compilação, sem segredo e sem passo de publicação | três runs reais no GitHub Actions, todos `success` |
+| `src/devops.py` (E08) | Detecção de anomalia e estimativa de risco sobre série rotulada | os cinco valores congelados reproduzidos; a série sem rótulo é recusada em código |
+| `examples/devops/pipeline_runs.json` (E08) | Série **simulada e declarada**, com `purpose` e `source` | `load_pipeline_runs` recusa carregar sem o rótulo |
+| `tests/test_devops.py` (E08) | Métricas, recusas, fronteiras do crescimento e contrato do workflow | 19 testes; **7 mutações deliberadas, 7 detectadas** |
+| `docs/devops/` (E08) | Logs reais de lint e testes, análise dos dois logs, anomalia justificada e logs do pipeline remoto | cinco documentos, com saídas literais e carimbos de tempo do run |
+| `docs/low-code/javalog-agent-n8n.json` (E09) | Fluxo de três nós que apenas orquestra a chamada à aplicação | importado e **executado** em instância local; nenhuma credencial |
+| `tests/test_n8n_workflow.py` (E09) | Estrutura do fluxo, ausência de credencial e reprodutibilidade documentada | 28 testes |
+| `docs/low-code/reproducao.md` (E09) | Pré-requisitos, duas sequências de reprodução e o registro da execução real | execuções com identificador, status, código HTTP e sequência dos nós |
+| `docs/low-code/decisao-integracao.md` (E09) | Escolha da ferramenta, desenho do fluxo e alternativas descartadas | seis alternativas, duas delas reprovadas pela execução real |
+| `tests/test_config.py` (E10) | Configuração tipada, imutável, com a chave encapsulada e sem vazamento | 19 testes |
+| `docs/arquitetura.md` (E10) | Diagrama do grafo, rotas, paralelização, parada e as três fronteiras | exigido pelo item 5.2 |
+| `docs/evidencias/` (E10) | Cenários, testes, observabilidade, instalação, varreduras, pacote e fronteiras | sete documentos, com saídas reais |
+| `docs/prompts/10-sistema-final.md` (E10) | Único prompt novo, acrescentado ao fim da série histórica | os nove anteriores permanecem intocados |
 
 ## Removido ou substituído
 
@@ -1105,6 +1118,169 @@ de forma diziam a verdade sobre o arquivo e, ainda assim, não diziam nada sobre
 o que aconteceria na importação — porque a forma estava certa e o contrato do
 destino era outro.
 
+### Ciclo 23 — a documentação negava uma escrita que o próprio agente faz (E10)
+
+**Problema observado.** Seis documentos afirmavam que a execução bloqueada não
+escreve nada. As formulações variavam — *"nenhum arquivo é escrito"*, *"não há
+escrita em disco"*, *"zero arquivo criado"*, *"nada escrito"*, *"`output/`
+permanece com o mesmo conteúdo"*, *"não produz efeito fora do estado"* — e todas
+diziam a mesma coisa falsa. A verificação direta, contando linhas antes e depois
+de uma execução bloqueada:
+
+```text
+codigo de saida    : 1
+agent-events.jsonl : 72 -> 73  (delta 1)
+agent-audit.jsonl  : 72 -> 73  (delta 1)
+report_*.md        :  1 ->  1  (delta 0)
+```
+
+**Diagnóstico.** Duas afirmações diferentes tinham sido fundidas numa só. É
+verdade que o caminho bloqueado não chama o modelo, não gera relatório de
+diagnóstico e não executa ação externa. Não é verdade que ele não escreva: toda
+rota passa por `finalizar_execucao`, e esse nó emite uma linha em cada um dos
+dois sinais **de propósito**. A escrita que sobra não é vazamento do bloqueio, é
+a condição para que o bloqueio seja investigável.
+
+O erro tinha consequência maior que a imprecisão: quem lesse a documentação e
+depois inspecionasse `output/` encontraria linhas que o texto dizia não existir —
+e passaria a duvidar do resto.
+
+**Alteração realizada.** As seis afirmações foram substituídas por uma
+formulação que separa as quatro grandezas: zero relatório de diagnóstico, zero
+chamada ao modelo, zero ação externa e **emissão intencional dos dois sinais**.
+Em `docs/seguranca/cenario-adversarial.md`, a linha da tabela comparativa foi
+desdobrada em duas, porque uma linha só não conseguia dizer a verdade sobre as
+duas coisas:
+
+```diff
+-| Escritas em `output/` | 1 | **0** |
++| Relatório de diagnóstico gerado | 1 | **0** |
++| Sinais de observabilidade emitidos | 2 | 2 |
+```
+
+O teste que guardava esse comportamento chamava-se
+`test_cenario_adversarial_nao_escreve_nada`, e o nome prometia mais do que o
+corpo verificava: ele observa a tool de relatório, não todas as escritas do
+sistema. Passou a chamar-se `test_cenario_adversarial_nao_escreve_relatorio`,
+sem alteração de comportamento.
+
+**Teste executado.** Contagem das linhas dos dois sinais antes e depois de uma
+execução bloqueada real, mais a suíte versionada.
+
+**Resultado obtido.**
+
+```text
+execucao bloqueada -> 1 linha em cada sinal, 0 relatorio, codigo de saida 1
+suite versionada   -> 413 passed  (413 -> 413; apenas o nome do teste mudou)
+```
+
+A lição é sobre o que um nome de teste promete: **um teste chamado "não escreve
+nada" que observa apenas uma tool vira evidência de uma afirmação que ele nunca
+fez**. Esse nome vazou para seis documentos e virou fato declarado.
+
+### Ciclo 24 — números de contagem envelheceram sem que nada os conferisse (E10)
+
+**Problema observado.** Três contagens publicadas divergiam do estado real da
+árvore:
+
+| Onde | Publicado | Real |
+|---|---:|---:|
+| `docs/evidencias/pacote.md`, linha de `docs/` | 32 | **33** |
+| `docs/evidencias/scans.md`, arquivos inspecionados | 77 | **80** |
+| soma das parcelas da tabela de distribuição | 79 | **80** |
+
+A mesma tabela declarava **80 arquivos** no cabeçalho e somava 79 nas linhas.
+
+**Diagnóstico.** Número escrito à mão em prosa não tem quem o recuse quando o
+mundo muda. As etapas seguintes acrescentaram arquivos a `docs/` e as contagens
+ficaram onde estavam — nenhum teste as lia, nenhum verificador as comparava com
+`git ls-files`. O caso mais revelador é o da soma: o total estava certo, as
+parcelas erradas, e a contradição vivia dentro da mesma tabela sem nunca ter
+sido somada por ninguém.
+
+**Alteração realizada.** `docs/` passou a 33, o scanner passou a declarar 80
+arquivos inspecionados, e a soma das parcelas foi conferida contra o total.
+
+**Teste executado.** Contagem por pasta a partir de `git ls-files` somado aos
+arquivos novos não ignorados, e soma aritmética das parcelas da tabela.
+
+**Resultado obtido.**
+
+```text
+docs 33 · tests 15 · src 15 · examples 9 · raiz 5 · slides 1 · output 1 · .github 1
+soma das parcelas = 80    total declarado = 80    rastreados + novos = 80
+```
+
+A lição: **um total que ninguém soma é uma afirmação, não uma verificação.**
+
+### Ciclo 25 — os comandos de ambiente virtual não rodavam onde diziam rodar (E10)
+
+**Problema observado.** Três sequências de instalação publicadas eram
+inexecutáveis ou ambíguas no ambiente que anunciavam:
+
+| Onde | Comando publicado | O que acontece |
+|---|---|---|
+| `README.md`, seção *Linux, macOS ou Git Bash* | `source .venv/bin/activate` | falha no Git Bash sobre Windows: o ambiente criado ali é o do Windows, e os executáveis ficam em `.venv/Scripts` |
+| `docs/evidencias/instalacao-e-sintaxe.md` | bloco marcado como `bash` com sintaxe de PowerShell dentro | linguagem do bloco contradiz o comando, e faltava o prefixo que o PowerShell exige para executar do diretório corrente |
+| `docs/evidencias/pacote.md`, sequência do clone | `python -m venv .venv` seguido de `python -m pip install` | cria o ambiente e **nunca o ativa**: as linhas seguintes rodam no Python global |
+
+**Diagnóstico.** O terceiro caso é o pior, porque **funciona**. Instalar e testar
+com o interpretador global não produz erro nenhum: produz um resultado que não
+prova o que a seção promete provar, que é o clone limpo se sustentando sozinho.
+Comando que falha é detectado na primeira tentativa; comando que passa pelo
+motivo errado sobrevive até alguém com outro ambiente tentar reproduzir.
+
+O primeiro caso vem de tratar Git Bash como se fosse Unix. É um shell POSIX
+sobre Windows: a sintaxe é a de Bash, a árvore do ambiente virtual é a do
+Windows. As duas coisas não andam juntas.
+
+**Alteração realizada.** *Linux ou macOS* e *Git Bash sobre Windows* passaram a
+ser seções separadas, cada uma com o caminho de ativação que existe naquele
+sistema. O bloco de PowerShell foi remarcado como `powershell` e recebeu o
+prefixo exigido. A sequência do clone passou a invocar o interpretador do
+ambiente virtual **pelo caminho**, dispensando ativação, em duas variantes por
+plataforma. A seção da API passou a declarar as duas situações — sem `.env`, o
+diagnóstico conclui em `fallback`; com `--env-file .env`, em `llm` — sem tornar o
+arquivo obrigatório.
+
+**Teste executado.** Duas das quatro sequências foram executadas; as outras duas
+não podiam ser, e ficam declaradas como não executadas.
+
+| Sequência | Situação | O que foi feito |
+|---|---|---|
+| **Windows PowerShell** | **executada** | interpretador do ambiente virtual invocado pelo caminho, com a suíte inteira |
+| **Git Bash sobre Windows** | **executada** | ativação por `source .venv/Scripts/activate` e resolução do interpretador |
+| **Linux ou macOS** | **não executada** | revisada apenas documentalmente; este host é Windows e não há máquina Unix no ciclo |
+| **Clone limpo a partir do remoto** | **não executada** | `origin/develop` está em `b8fd934` com **70 arquivos**; os 10 arquivos desta etapa ainda não foram integrados, então o clone que a seção descreve **ainda não existe** |
+
+**Resultado obtido.**
+
+```text
+PowerShell  interpretador do venv pelo caminho     -> 413 passed
+Git Bash    source .venv/Scripts/activate          -> ativa
+            which python                           -> .venv/Scripts/python
+            sys.prefix                             -> .venv
+            .venv/bin/activate                     -> No such file or directory
+Linux/macOS                                        -> NAO EXECUTADO neste host
+clone limpo                                        -> NAO EXECUTADO; origin/develop
+                                                      tem 70 arquivos, a arvore
+                                                      candidata local tem 80
+cenario adversarial (PowerShell)                   -> codigo de saida 1
+```
+
+O caso do Git Bash é o que fecha o argumento com medida, e não com raciocínio: a
+ativação funciona por `Scripts`, o interpretador resolve para
+`.venv/Scripts/python`, e `.venv/bin/activate` **não existe** — que era
+exatamente o caminho publicado antes.
+
+A lição tem duas metades, e a segunda custou mais. A primeira: **um comando de
+documentação só está verificado quando foi executado no shell que ele nomeia.** A
+segunda: **declarar como executado o que não foi executado é o mesmo defeito que
+o ciclo se propôs a corrigir** — a primeira redação deste ciclo afirmava ter
+rodado as quatro sequências, incluindo um clone do remoto que ainda não podia
+existir. Uma seção de evidência que descreve reprodução futura é instrucional e
+legítima; o que não é legítimo é registrá-la como medição já feita.
+
 ## Resultado consolidado da E01
 
 | Verificação | Resultado |
@@ -1119,3 +1295,44 @@ destino era outro.
 | `pip check` | `No broken requirements found` |
 | Varredura de segredos | zero ocorrências, com **dois** controles negativos, um deles no `.env.example` |
 | Validação complementar da E01 | **38 checagens, 0 falhas** |
+
+## Fechamento
+
+### O que aconteceu com a baseline
+
+| Categoria | Quantidade | Observação |
+|---|---:|---|
+| **Mantido** | 22 arquivos | prompts históricos, logs, relatórios de referência, slides e os contratos herdados |
+| **Refatorado** | 14 arquivos | ampliados sem quebrar nome público, mensagem literal nem comportamento herdado |
+| **Adicionado** | 44 arquivos | as capacidades novas e a documentação que as sustenta |
+| **Removido** | **0** | nada da baseline foi descartado |
+
+**80 arquivos** no total. Cada arquivo herdado que mudou continua passando nos
+testes que já existiam antes da mudança — foi essa a regra que governou toda a
+refatoração.
+
+### Os ciclos de refinamento
+
+**25 ciclos reais** estão registrados acima, cada um com problema observado,
+diagnóstico, alteração rastreável, teste ou lint executado e resultado obtido.
+Eles não foram reconstruídos no fim: cada um foi escrito no momento em que
+aconteceu.
+
+O que eles têm em comum vale mais que a soma:
+
+| Padrão recorrente | Onde apareceu |
+|---|---|
+| **Teste ancorado na própria constante que deveria guardar** | ciclos 12, 16 e 18 — o teste acompanhava a mudança em vez de recusá-la |
+| **Verificação que afirma mais do que executa** | ciclos 8 e 9 — cobertura aparente com ponto cego real |
+| **Erro de fronteira em condição de limite** | ciclos 5 e 13 — igualdade e precedência, onde os operadores divergem |
+| **Campo publicado sem produtor** | ciclo 20 — omitir é honesto, zerar é falso |
+| **Artefato válido que o destino recusa** | ciclo 22 — forma correta, contrato do destino diferente |
+| **Documentação que afirma mais do que o código faz** | ciclos 23 e 24 — a prosa envelheceu sem que nada a recusasse |
+| **Comando que passa pelo motivo errado** | ciclo 25 — o clone instalava no interpretador global e ainda assim terminava sem erro |
+
+### O que a evolução preservou
+
+Nenhuma capacidade do miniprojeto foi perdida. O agente continua validando,
+lendo de forma confinada, extraindo, classificando, diagnosticando e gravando o
+relatório — e continua **concluindo sem chave de modelo**. Tudo o que veio depois
+foi acrescentado em torno disso, sem substituir o que já funcionava.

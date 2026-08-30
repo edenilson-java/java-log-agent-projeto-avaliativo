@@ -6,6 +6,7 @@ contrato e o mapeamento entre desfecho do domínio e código de status.
 """
 
 import json
+import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -58,6 +59,20 @@ def test_read_log_devolve_caminho_portatil(client):
         "/api/v1/tools/read-log", json={"file_path": LOG_COM_ERRO}
     )
     assert "\\" not in resposta.json()["file_path"]
+
+
+def test_report_path_e_relativo_e_nao_revela_a_maquina(client):
+    """Garante que report_path seja relativo, portátil e não revele a raiz local."""
+    resposta = client.post("/api/v1/analyze", json={"file_path": LOG_LIMPO})
+    caminho = resposta.json()["report_path"]
+
+    assert resposta.status_code == 200
+    assert caminho == "output/report_application-clean.md"
+    assert not Path(caminho).is_absolute()
+    assert "\\" not in caminho
+    assert not re.match(r"^[A-Za-z]:", caminho)
+    assert not caminho.startswith("/")
+    assert "java-log-agent-projeto-avaliativo" not in caminho
 
 
 # ---------------------------------------------------- tool via HTTP: erros

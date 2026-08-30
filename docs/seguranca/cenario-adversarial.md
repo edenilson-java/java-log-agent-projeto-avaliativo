@@ -44,7 +44,8 @@ diagnóstico. Ao detectar qualquer família, encerra a execução:
 - `requires_human == True`;
 - mensagem literal exata;
 - **zero chamada ao modelo**;
-- **zero tool de escrita e nenhum arquivo criado**;
+- **zero chamada à tool de escrita de relatório e nenhum relatório criado**;
+- **zero ação externa**;
 - código de saída **1**.
 
 ## Resultado obtido
@@ -62,8 +63,12 @@ $ echo $?
 1
 ```
 
-O diretório `output/` permanece com o mesmo conteúdo de antes da execução:
-nenhum relatório é gerado.
+Nenhum relatório de diagnóstico é gerado. O que muda em `output/` é apenas o
+rastro do término: `finalizar_execucao` **acrescenta uma linha a
+`agent-events.jsonl` e uma linha a `agent-audit.jsonl`**, com os mesmos
+identificadores de correlação das demais rotas. É emissão intencional, e é o que
+torna a recusa investigável depois — um bloqueio sem rastro seria
+indistinguível de uma execução que nunca aconteceu.
 
 ### Estado final
 
@@ -92,17 +97,19 @@ O que a sequência estabelece:
   aberto antes de ser aprovado quanto a diretório, extensão e tamanho;
 - a **leitura confinada precede a política por necessidade** — é o conteúdo
   lido que a política inspeciona. Ler é o que permite detectar o vetor;
-- **depois da política, no caminho bloqueado, não há chamada ao modelo, tool
-  de escrita nem ação externa**;
+- **depois da política, no caminho bloqueado, não há chamada ao modelo, escrita
+  de relatório nem ação externa**;
 - o fluxo segue apenas ao ponto único de término, `finalizar_execucao`, por
-  onde todas as rotas passam e que não produz efeito fora do estado.
+  onde todas as rotas passam e cujo único efeito fora do estado é **emitir os
+  dois sinais de observabilidade**.
 
 ### Controle negativo
 
 O mesmo fluxo, com o cenário principal
 (`examples/logs/null-pointer-exception.log`), continua funcionando por
 completo: `status == "success"`, `security_flags == []`, uma chamada ao modelo
-e uma escrita. A governança bloqueia o hostil sem quebrar o legítimo.
+e uma escrita de relatório. A governança bloqueia o hostil sem quebrar o
+legítimo.
 
 ## Comparação entre os dois cenários
 
@@ -113,8 +120,14 @@ e uma escrita. A governança bloqueia o hostil sem quebrar o legítimo.
 | `security_flags` | `[]` | as três famílias |
 | `requires_human` | `False` | `True` |
 | Chamadas ao modelo | 1 | **0** |
-| Escritas em `output/` | 1 | **0** |
+| Relatório de diagnóstico gerado | 1 | **0** |
+| Sinais de observabilidade emitidos | 2 | 2 |
 | Código de saída | 0 | **1** |
+
+A linha dos sinais é deliberadamente igual nos dois cenários: são dois por
+execução — uma linha em `agent-events.jsonl` e uma em `agent-audit.jsonl` —
+porque toda rota passa pelo mesmo ponto de término. O que distingue o bloqueio
+não é a ausência de rastro, é a ausência de relatório.
 
 ## Onde está o teste
 
