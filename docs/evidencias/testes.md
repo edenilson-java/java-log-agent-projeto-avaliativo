@@ -9,7 +9,7 @@ Contagem real da suíte, distribuição por arquivo e o que cada grupo cobre.
 **Código de saída:** `0`
 
 ```text
-413 passed
+414 passed
 ```
 
 Nenhum teste pulado, nenhum erro de coleta, nenhuma falha esperada. A ausência de
@@ -27,7 +27,7 @@ degradado.
 | `tests/test_observability.py` | 56 | os dois sinais correlacionados, redação recursiva, todas as rotas, contrato de auditoria |
 | `tests/test_memory.py` | 39 | isolamento por thread, limites do contexto, chave real do checkpointer |
 | `tests/test_api.py` | 39 | fronteira HTTP e fronteira CLI |
-| `tests/test_graph_advanced.py` | 32 | rotas, paralelização, condições de parada |
+| `tests/test_graph_advanced.py` | 33 | rotas, paralelização, condições de parada |
 | `tests/test_n8n_workflow.py` | 29 | estrutura do fluxo low-code, ausência de credencial, reprodutibilidade |
 | `tests/test_resilience.py` | 25 | quatro formas de falha do modelo e o fallback |
 | `tests/test_mcp.py` | 22 | fronteira MCP, atravessando `call_tool` |
@@ -36,7 +36,7 @@ degradado.
 | `tests/test_config.py` | 19 | configuração tipada, imutável, sem vazamento da chave |
 | `tests/test_validation.py` | 8 | validação de entrada herdada |
 | `tests/test_routing.py` | 7 | roteamento herdado |
-| **Total** | **413** | |
+| **Total** | **414** | |
 
 ## Tipos de teste presentes
 
@@ -53,7 +53,7 @@ Detalhamento em [`../qa/estrategia-testes.md`](../qa/estrategia-testes.md).
 
 ## O que a contagem não diz
 
-`413 passed` mede **quantos testes existem e passaram**, não quanto do
+`414 passed` mede **quantos testes existem e passaram**, não quanto do
 comportamento eles observam. Um teste que se ancora na própria constante que
 deveria proteger aparece nessa linha como mais um ponto verde.
 

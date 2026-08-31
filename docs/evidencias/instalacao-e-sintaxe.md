@@ -59,7 +59,7 @@ python -m pip install -r requirements.txt
 Depois disso, os quatro comandos de verificação rodam sem configuração adicional:
 
 ```text
-pytest -q                        413 passed
+pytest -q                        414 passed
 ruff check src tests             All checks passed!
 python -m compileall -q src      exit 0
 pip check                        No broken requirements found
