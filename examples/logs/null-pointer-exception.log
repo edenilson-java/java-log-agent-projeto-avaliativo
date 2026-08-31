@@ -1,0 +1,6 @@
+2026-07-18 11:20:05.111  INFO 54321 --- [http-nio-8080-exec-1] c.e.c.UserController : Processing request for user ID 999
+2026-07-18 11:20:05.115 ERROR 54321 --- [http-nio-8080-exec-1] c.e.c.GlobalExceptionHandler : Unhandled exception occurred
+
+java.lang.NullPointerException: Cannot invoke "com.example.model.User.getName()" because "user" is null
+at com.example.service.UserService.processUser(UserService.java:45)
+at com.example.controller.UserController.getUser(UserController.java:28)

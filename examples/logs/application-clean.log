@@ -1,0 +1,4 @@
+2026-07-18 09:00:00.000  INFO 11111 --- [main] c.e.a.Application : Starting Application v1.0.0
+2026-07-18 09:00:02.500  INFO 11111 --- [main] o.s.b.w.e.tomcat.TomcatWebServer : Tomcat initialized with port(s): 8080 (http)
+2026-07-18 09:00:03.100  INFO 11111 --- [main] c.e.a.Application : Started Application in 3.5 seconds
+2026-07-18 09:05:10.222  INFO 11111 --- [http-nio-8080-exec-1] c.e.c.HealthController : Health check requested, status OK
