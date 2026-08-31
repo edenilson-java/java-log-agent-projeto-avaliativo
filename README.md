@@ -72,8 +72,8 @@ flowchart TD
     B -->|valido| C[ler_log]
     C -->|erro| Z
     C -->|ok| D{fan-out}
-    D --> E[extrair_eventos]
-    D --> F[classificar_log]
+    D --> E[analisar_excecoes]
+    D --> F[analisar_eventos]
     E --> G[consolidar_analises]
     F --> G
     G --> H[verificar_seguranca]
@@ -88,10 +88,15 @@ flowchart TD
     M --> Z
 ```
 
-**Paralelização.** Depois da leitura, `extrair_eventos` e `classificar_log`
-executam em paralelo — fan-out —, e `consolidar_analises` é o ponto de encontro —
-fan-in. O reducer do estado mescla por origem, de modo que a ordem de chegada não
-altera o resultado.
+**Paralelização.** Depois da leitura, o grafo abre duas análises em paralelo —
+fan-out. `analisar_excecoes` extrai as exceções Java; `analisar_eventos` extrai as
+linhas `ERROR` e `WARN`. `consolidar_analises` é o ponto de encontro — fan-in —, e
+o reducer do estado mescla as duas contribuições **por origem**, de modo que a
+ordem de chegada não altera o resultado.
+
+A **classificação determinística** do log não é uma terceira branch paralela: ela
+acontece **dentro de `consolidar_analises`**, pela função `classificar_log`, depois
+que as duas contribuições já foram reunidas.
 
 **Condição de parada.** `current_step >= max_steps` encerra pelo caminho de
 término, sem validar, ler, escrever nem chamar o modelo.
@@ -557,7 +562,7 @@ escrito **antes** da correção, visto falhando, e passou depois. A suíte foi d
 procurar a informação em outro lugar; um campo com valor fixo faz acreditar que
 já a encontrou.
 
-Os demais ciclos — vinte e cinco ao todo — estão em
+Os demais ciclos — vinte e seis ao todo — estão em
 [`docs/evolucao-mini-projeto.md`](docs/evolucao-mini-projeto.md).
 
 ### Limitações
@@ -585,7 +590,7 @@ Os demais ciclos — vinte e cinco ao todo — estão em
 
 ### Vídeo de apresentação
 
-**Link do vídeo:** https://youtu.be/v1QM-YUI6q8
+**Link do vídeo:** https://youtu.be/goFfwE4kZkQ
 
 ---
 

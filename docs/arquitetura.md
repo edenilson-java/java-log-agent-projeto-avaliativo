@@ -30,8 +30,8 @@ flowchart TD
     B -->|valido| C[ler_log]
     C -->|erro| Z
     C -->|ok| D{fan-out}
-    D --> E[extrair_eventos]
-    D --> F[classificar_log]
+    D --> E[analisar_excecoes]
+    D --> F[analisar_eventos]
     E --> G[consolidar_analises]
     F --> G
     G --> H[verificar_seguranca]
@@ -53,9 +53,9 @@ flowchart TD
 | `inicializar_execucao` | prepara a execução, incrementa o passo e zera os campos que pertencem a uma execução só |
 | `validar_entrada` | valida o caminho de forma determinística, antes de qualquer leitura |
 | `ler_log` | lê o arquivo pela tool confinada a `examples/logs/` |
-| `extrair_eventos` | extrai exceções Java e linhas `ERROR` e `WARN` |
-| `classificar_log` | classifica o log em categoria, sem modelo |
-| `consolidar_analises` | junta as duas análises paralelas |
+| `analisar_excecoes` | branch paralela: extrai as exceções Java do conteúdo lido |
+| `analisar_eventos` | branch paralela: extrai as linhas `ERROR` e `WARN` |
+| `consolidar_analises` | fan-in: reúne as duas contribuições e chama `classificar_log`, que categoriza o log sem modelo |
 | `verificar_seguranca` | avalia a política de autonomia sobre o conteúdo lido |
 | `gerar_resultado_sem_erros` | monta o resultado quando não há erro a diagnosticar |
 | `diagnosticar` | **único ponto de LLM**, com uma tentativa e sem retry |
@@ -77,11 +77,34 @@ Há ainda a rota do diagnóstico, que separa saída válida de saída fora do sc
 
 ### Paralelização — fan-out e fan-in
 
-Depois da leitura, **`extrair_eventos` e `classificar_log` executam em paralelo**.
-São independentes: um varre o texto atrás de eventos, o outro classifica o log
-como um todo. `consolidar_analises` é o ponto de encontro — o fan-in — e o
-reducer do estado mescla as duas contribuições **por origem**, de modo que a
-ordem de chegada não altera o resultado.
+Depois da leitura, **`analisar_excecoes` e `analisar_eventos` executam em
+paralelo**. São independentes e trabalham sobre o mesmo conteúdo já lido: a
+primeira extrai as exceções Java, a segunda extrai as linhas `ERROR` e `WARN`.
+`consolidar_analises` é o ponto de encontro — o fan-in — e o reducer do estado
+mescla as duas contribuições **por origem**, de modo que a ordem de chegada não
+altera o resultado.
+
+O caminho, do arquivo à categoria:
+
+```text
+ler_log
+  +--> analisar_excecoes --+
+  +--> analisar_eventos  --+--> consolidar_analises
+                                  |
+                                  +--> classificar_log
+```
+
+`analisar_excecoes` e `analisar_eventos` **partem de `ler_log` em paralelo** —
+as duas setas saem do mesmo ponto, e nenhuma depende da outra. As duas chegam a
+`consolidar_analises`, que é o fan-in. `classificar_log` é chamada **dentro de
+`consolidar_analises`**, depois do fan-in: extrai as exceções Java a primeira,
+as linhas `ERROR` e `WARN` a segunda, e só então o log é categorizado.
+
+A **classificação não é uma branch paralela**. `classificar_log` é uma função
+herdada do miniprojeto, reaproveitada **dentro de `consolidar_analises`**, depois
+do fan-in — quando as duas contribuições já estão disponíveis. Os dois nós
+registrados no `StateGraph` para o trecho paralelo são, exatamente,
+`analisar_excecoes` e `analisar_eventos`.
 
 ### Condição de parada
 

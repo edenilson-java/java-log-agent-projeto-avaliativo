@@ -1281,6 +1281,70 @@ rodado as quatro sequências, incluindo um clone do remoto que ainda não podia
 existir. Uma seção de evidência que descreve reprodução futura é instrucional e
 legítima; o que não é legítimo é registrá-la como medição já feita.
 
+### Ciclo 26 — o diagrama nomeava nós que o grafo não registra (E11)
+
+**Problema observado.** O diagrama de arquitetura e o texto que o acompanha
+apresentavam `extrair_eventos` e `classificar_log` como as duas branches
+paralelas. A comparação com os nós efetivamente registrados no `StateGraph`
+mostrou outra composição:
+
+```text
+add_node registrados : analisar_excecoes · analisar_eventos · consolidar_analises · …
+route_ler_log        : ["analisar_excecoes", "analisar_eventos"]
+extrair_eventos      : definido em src/nodes.py, nao registrado como no
+classificar_log      : definido em src/nodes.py, chamado dentro de consolidar_analises
+```
+
+As duas funções citadas existem — são herdadas do miniprojeto e continuam em uso
+—, mas nenhuma delas é uma das branches paralelas. `extrair_eventos` não é
+registrada como nó, e `classificar_log` executa **depois** do fan-in, dentro de
+`consolidar_analises`.
+
+**Diagnóstico.** A paralelização sempre esteve correta no código; o que
+divergia era a **nomenclatura publicada**. O diagrama foi escrito a partir das
+funções herdadas, e os nós de controle acrescentados depois receberam nomes
+próprios sem que a documentação acompanhasse. O erro é de rastreabilidade: quem
+lesse a arquitetura e fosse procurar `extrair_eventos` no grafo não o
+encontraria, e quem lesse `classificar_log` como branch paralela concluiria que
+a classificação ocorre antes da consolidação — quando ocorre dentro dela.
+
+**Alteração realizada.** Nomes e responsabilidades alinhados ao fluxo
+executável, em `README.md` e `docs/arquitetura.md`:
+
+```diff
+-    D --> E[extrair_eventos]
+-    D --> F[classificar_log]
++    D --> E[analisar_excecoes]
++    D --> F[analisar_eventos]
+```
+
+A tabela de nós passou a descrever `analisar_excecoes` como a branch que extrai
+as exceções Java, `analisar_eventos` como a que extrai as linhas `ERROR` e
+`WARN`, e `consolidar_analises` como o fan-in que reúne as duas contribuições e
+chama `classificar_log`. A seção de paralelização ganhou o caminho explícito, do
+arquivo à categoria, e a ressalva de que a classificação não é uma terceira
+branch paralela.
+
+**Teste executado.** Um teste de regressão em `tests/test_graph_advanced.py`
+confere, na mesma execução, a rota do grafo e o texto dos dois documentos: que
+`route_ler_log` devolve exatamente as duas branches reais, que os dois nomes
+aparecem em ambos os documentos, que `extrair_eventos` não é mais apresentado
+como nó, que nenhum dos dois textos associa `classificar_log` a execução
+paralela, e que ambos situam a classificação na consolidação.
+
+**Resultado obtido.**
+
+```text
+antes  -> teste de regressao documental: FAILED (README com a nomenclatura anterior)
+depois -> teste de regressao documental: PASSED
+```
+
+A lição é sobre o alcance de um teste de estrutura: a suíte já provava que a
+paralelização existia e que as duas branches se reencontravam, mas nenhuma
+verificação ligava o **nome publicado** ao **nó registrado**. Documentação de
+arquitetura é afirmação sobre o código, e afirmação sobre o código pode ser
+verificada por teste como qualquer outra.
+
 ## Resultado consolidado da E01
 
 | Verificação | Resultado |
@@ -1313,7 +1377,7 @@ refatoração.
 
 ### Os ciclos de refinamento
 
-**25 ciclos reais** estão registrados acima, cada um com problema observado,
+**26 ciclos reais** estão registrados acima, cada um com problema observado,
 diagnóstico, alteração rastreável, teste ou lint executado e resultado obtido.
 Eles não foram reconstruídos no fim: cada um foi escrito no momento em que
 aconteceu.
@@ -1329,6 +1393,7 @@ O que eles têm em comum vale mais que a soma:
 | **Artefato válido que o destino recusa** | ciclo 22 — forma correta, contrato do destino diferente |
 | **Documentação que afirma mais do que o código faz** | ciclos 23 e 24 — a prosa envelheceu sem que nada a recusasse |
 | **Comando que passa pelo motivo errado** | ciclo 25 — o clone instalava no interpretador global e ainda assim terminava sem erro |
+| **Nome publicado que não corresponde ao registrado** | ciclo 26 — o diagrama descrevia o fluxo certo com os nomes errados |
 
 ### O que a evolução preservou
 
