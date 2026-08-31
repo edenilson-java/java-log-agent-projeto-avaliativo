@@ -5,6 +5,8 @@ Complementam `test_routing.py`, herdado do mini-projeto, que continua
 cobrindo os desfechos originais. Aqui o alvo é o que a evolução acrescentou.
 """
 
+import re
+from pathlib import Path
 from unittest.mock import patch
 
 import pytest
@@ -21,6 +23,16 @@ from src.graph import (
 from src.nodes import CANCELAMENTO_MENSAGEM, LIMITE_MENSAGEM
 from src.state import merge_parallel_findings, merge_unique_strings
 from tests.fake_llm import FakeLLM
+
+PROJETO = Path(__file__).resolve().parent.parent
+
+# As quatro arestas Mermaid que descrevem o fan-out e o fan-in reais.
+ARESTAS_PARALELAS = (
+    "D --> E[analisar_excecoes]",
+    "D --> F[analisar_eventos]",
+    "E --> G[consolidar_analises]",
+    "F --> G",
+)
 
 LOG_COM_ERRO = "ERROR Falhou\njava.lang.NullPointerException: teste"
 LOG_LIMPO = "2026-07-18 INFO App started successfully"
@@ -418,3 +430,34 @@ def test_thread_id_informado_e_preservado(
     sem_thread = create_graph().invoke({"file_path": "clean.log"})
     assert sem_thread["thread_id"]
     assert sem_thread["thread_id"] != "thread-fixa"
+
+
+def test_documentacao_nomeia_as_branches_paralelas_reais():
+    """A documentação nomeia os nós que o grafo registra, não funções herdadas."""
+    paralelas = route_ler_log({"error": None})
+    assert paralelas == ["analisar_excecoes", "analisar_eventos"]
+
+    for nome in ("README.md", "docs/arquitetura.md"):
+        texto = (PROJETO / nome).read_text(encoding="utf-8")
+        for no in paralelas:
+            assert no in texto, f"{nome}: falta {no}"
+        assert "extrair_eventos" not in texto, f"{nome}: nomeia extrair_eventos"
+        assert not re.search(
+            r"`classificar_log`[^.]{0,80}(?:em paralelo|branch paralela)",
+            texto,
+        ), f"{nome}: apresenta classificar_log como branch paralela"
+        assert re.search(
+            r"`classificar_log`[^.]{0,120}consolidar_analises"
+            r"|consolidar_analises[^.]{0,120}`classificar_log`",
+            texto,
+        ), f"{nome}: nao situa classificar_log na consolidacao"
+
+        # As quatro arestas do fan-out/fan-in, para que o diagrama nao
+        # volte a representar as duas branches como uma sequencia.
+        for aresta in ARESTAS_PARALELAS:
+            assert aresta in texto, f"{nome}: falta a aresta {aresta!r}"
+        assert not re.search(
+            r"E\[analisar_excecoes\]\s*-->\s*F\[analisar_eventos\]"
+            r"|analisar_excecoes\s*(?:-->|→)\s*analisar_eventos",
+            texto,
+        ), f"{nome}: encadeia as duas branches em sequencia"
