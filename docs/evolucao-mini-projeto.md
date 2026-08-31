@@ -1345,6 +1345,58 @@ verificação ligava o **nome publicado** ao **nó registrado**. Documentação 
 arquitetura é afirmação sobre o código, e afirmação sobre o código pode ser
 verificada por teste como qualquer outra.
 
+### Ciclo 27 — as evidências publicadas ficaram atrás da suíte (E12)
+
+**Problema observado.** Depois que o ciclo anterior acrescentou o teste
+documental, as evidências de estado atual passaram a publicar uma contagem **uma
+unidade abaixo** da suíte real. A verificação direta mostrou a diferença:
+
+```text
+pytest -q                                   -> 414 passed
+docs/evidencias/testes.md, total declarado  -> uma unidade abaixo
+soma das parcelas da tabela                 -> uma unidade abaixo
+```
+
+**Diagnóstico.** `tests/test_graph_advanced.py` passou de 32 para **33** testes,
+e a suíte total passou para **414**. A tabela de distribuição e os totais
+publicados são valores derivados da coleta da suíte e precisam ser
+reconciliados sempre que essa coleta muda. As parcelas e o total permaneceram
+consistentes entre si, mas deixaram de corresponder ao resultado real de
+`pytest --collect-only`.
+
+**Alteração realizada.** Cinco documentos, todos de estado atual:
+
+| Documento | O que mudou |
+|---|---|
+| `README.md` | contagem de testes e total de ciclos |
+| `docs/evidencias/testes.md` | saída do comando, parcela de `tests/test_graph_advanced.py`, total da tabela e a explicação do que a contagem mede |
+| `docs/evidencias/instalacao-e-sintaxe.md` | resultado de `pytest -q` |
+| `docs/evidencias/pacote.md` | resultado nas duas sequências de clone, PowerShell e Unix |
+| `docs/evolucao-mini-projeto.md` | este ciclo e o total de ciclos |
+
+Os registros históricos dos ciclos 23 e 25 **foram preservados** com a contagem
+que era verdadeira quando foram escritos. Corrigi-los seria apagar a medição,
+não atualizá-la.
+
+**Teste executado.** `pytest -q`; `pytest --collect-only` para a contagem por
+arquivo; soma executável das parcelas da tabela conferida contra o total
+declarado; e busca global pelas duas contagens em todo o conjunto versionável,
+separando as ocorrências de estado atual das históricas.
+
+**Resultado obtido.**
+
+```text
+pytest -q                                  -> 414 passed
+tests/test_graph_advanced.py               -> 33 testes coletados
+soma das parcelas = total declarado        -> 414 = 414
+ocorrencias de estado atual desatualizadas -> 0
+ocorrencias historicas preservadas         -> 2 (ciclos 23 e 25)
+```
+
+A lição é que valores derivados da suíte precisam ser revalidados sempre que a
+coleta de testes muda. A distribuição por arquivo e o total publicado devem ser
+comparados tanto entre si quanto com o resultado de `pytest --collect-only`.
+
 ## Resultado consolidado da E01
 
 | Verificação | Resultado |
@@ -1377,7 +1429,7 @@ refatoração.
 
 ### Os ciclos de refinamento
 
-**26 ciclos reais** estão registrados acima, cada um com problema observado,
+**27 ciclos reais** estão registrados acima, cada um com problema observado,
 diagnóstico, alteração rastreável, teste ou lint executado e resultado obtido.
 Eles não foram reconstruídos no fim: cada um foi escrito no momento em que
 aconteceu.
@@ -1394,6 +1446,7 @@ O que eles têm em comum vale mais que a soma:
 | **Documentação que afirma mais do que o código faz** | ciclos 23 e 24 — a prosa envelheceu sem que nada a recusasse |
 | **Comando que passa pelo motivo errado** | ciclo 25 — o clone instalava no interpretador global e ainda assim terminava sem erro |
 | **Nome publicado que não corresponde ao registrado** | ciclo 26 — o diagrama descrevia o fluxo certo com os nomes errados |
+| **Contagem derivada sem reconferência da fonte** | ciclo 27 — soma por arquivo e total reconciliados com `pytest --collect-only` |
 
 ### O que a evolução preservou
 

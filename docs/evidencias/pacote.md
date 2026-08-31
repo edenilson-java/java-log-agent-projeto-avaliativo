@@ -71,7 +71,7 @@ cd java-log-agent-projeto-avaliativo
 (git ls-files).Count                 # 80
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-.\.venv\Scripts\python.exe -m pytest -q                # 413 passed
+.\.venv\Scripts\python.exe -m pytest -q                # 414 passed
 .\.venv\Scripts\python.exe -m src.main examples/logs/null-pointer-exception.log
 .\.venv\Scripts\python.exe -m src.main examples/logs/adversarial-prompt-injection.log
 ```
@@ -85,7 +85,7 @@ cd java-log-agent-projeto-avaliativo
 git ls-files | wc -l                 # 80
 python3 -m venv .venv
 ./.venv/bin/python -m pip install -r requirements.txt
-./.venv/bin/python -m pytest -q      # 413 passed
+./.venv/bin/python -m pytest -q      # 414 passed
 ./.venv/bin/python -m src.main examples/logs/null-pointer-exception.log
 ./.venv/bin/python -m src.main examples/logs/adversarial-prompt-injection.log
 ```

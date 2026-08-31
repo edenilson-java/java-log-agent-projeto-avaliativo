@@ -317,7 +317,7 @@ python -m compileall -q src
 
 ### Testes
 
-**413 testes**, todos passando, sem chave e com rede externa bloqueada. Nenhum
+**414 testes**, todos passando, sem chave e com rede externa bloqueada. Nenhum
 teste pulado. Distribuição por arquivo e tipos presentes — integração, aceitação
 e E2E — em [`docs/evidencias/testes.md`](docs/evidencias/testes.md).
 
@@ -562,7 +562,7 @@ escrito **antes** da correção, visto falhando, e passou depois. A suíte foi d
 procurar a informação em outro lugar; um campo com valor fixo faz acreditar que
 já a encontrou.
 
-Os demais ciclos — vinte e seis ao todo — estão em
+Os demais ciclos — vinte e sete ao todo — estão em
 [`docs/evolucao-mini-projeto.md`](docs/evolucao-mini-projeto.md).
 
 ### Limitações
